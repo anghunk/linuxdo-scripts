@@ -1,0 +1,166 @@
+name: Sync Fork with Upstream
+
+on:
+  # 每周一凌晨2点执行 (UTC时间)
+  schedule:
+    - cron: '0 2 * * 1'
+  
+  # 允许手动触发
+  workflow_dispatch:
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          # 获取完整的git历史
+          fetch-depth: 0
+          # 使用具有写权限的token
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Add upstream remote
+        run: |
+          # 添加上游仓库地址
+          git remote add upstream https://github.com/anghunk/linuxdo-scripts.git
+          git remote -v
+
+      - name: Fetch upstream changes
+        run: |
+          git fetch upstream
+          git fetch origin
+
+      - name: Check if sync is needed
+        id: check_sync
+        run: |
+          # 检查本地main分支与上游main分支是否有差异
+          LOCAL_COMMIT=$(git rev-parse origin/main)
+          UPSTREAM_COMMIT=$(git rev-parse upstream/main)
+          
+          echo "Local commit: $LOCAL_COMMIT"
+          echo "Upstream commit: $UPSTREAM_COMMIT"
+          
+          if [ "$LOCAL_COMMIT" != "$UPSTREAM_COMMIT" ]; then
+            echo "sync_needed=true" >> $GITHUB_OUTPUT
+            echo "Sync needed - commits are different"
+          else
+            echo "sync_needed=false" >> $GITHUB_OUTPUT
+            echo "Already in sync - no changes needed"
+          fi
+
+      - name: Check and backup release.yml
+        if: steps.check_sync.outputs.sync_needed == 'true'
+        run: |
+          # 检查上游是否还有 release.yml 文件
+          if git cat-file -e upstream/main:.github/workflows/release.yml 2>/dev/null; then
+            echo "upstream_has_release=true" >> $GITHUB_ENV
+            echo "✅ 上游仍有 release.yml，将跟随上游更新"
+          else
+            echo "upstream_has_release=false" >> $GITHUB_ENV
+            echo "⚠️ 上游已删除 release.yml，将保护本地版本"
+            
+            # 备份本地的 release.yml
+            if [ -f ".github/workflows/release.yml" ]; then
+              cp .github/workflows/release.yml /tmp/release.yml.backup
+              echo "✅ 已备份本地 release.yml"
+            fi
+          fi
+
+      - name: Sync with upstream
+        if: steps.check_sync.outputs.sync_needed == 'true'
+        run: |
+          # 切换到main分支
+          git checkout main
+          
+          # 合并上游更改
+          git merge upstream/main --no-edit
+
+      - name: Restore deleted release.yml
+        if: steps.check_sync.outputs.sync_needed == 'true' && env.upstream_has_release == 'false'
+        run: |
+          # 只有在上游删除了文件时才恢复
+          if [ -f "/tmp/release.yml.backup" ]; then
+            mkdir -p .github/workflows
+            cp /tmp/release.yml.backup .github/workflows/release.yml
+            git add .github/workflows/release.yml
+            git commit -m "保护 release.yml：上游已删除但保留本地版本"
+            echo "✅ 已恢复被删除的 release.yml"
+          fi
+          
+          # 推送所有更改到origin
+          git push origin main
+
+      - name: Create pull request for conflicts (if needed)
+        if: failure() && steps.check_sync.outputs.sync_needed == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            // 如果合并失败，创建一个PR来手动处理冲突
+            const { data: pullRequests } = await github.rest.pulls.list({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              head: 'upstream-sync',
+              state: 'open'
+            });
+            
+            // 如果已经存在同步PR，则跳过
+            if (pullRequests.length > 0) {
+              console.log('Sync PR already exists');
+              return;
+            }
+            
+            // 创建新分支用于解决冲突
+            await github.rest.git.createRef({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              ref: 'refs/heads/upstream-sync',
+              sha: context.sha
+            });
+            
+            // 创建PR
+            await github.rest.pulls.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: '🔄 Sync with upstream (conflicts detected)',
+              head: 'upstream-sync',
+              base: 'main',
+              body: `
+              ## 自动同步上游仓库失败
+              
+              在尝试自动同步上游仓库时遇到了冲突，需要手动解决。
+              
+              ### 解决步骤：
+              1. 在本地拉取此分支
+              2. 解决合并冲突
+              3. 提交更改
+              4. 合并此PR
+              
+              ### 命令参考：
+              \`\`\`bash
+              git checkout upstream-sync
+              git merge upstream/main
+              # 解决冲突后
+              git add .
+              git commit -m "解决与上游的合并冲突"
+              git push origin upstream-sync
+              \`\`\`
+              
+              ---
+              *此PR由GitHub Actions自动创建*
+              `
+            });
+
+      - name: Summary
+        run: |
+          if [ "${{ steps.check_sync.outputs.sync_needed }}" == "true" ]; then
+            echo "✅ Fork已成功与上游同步"
+          else
+            echo "ℹ️ Fork已经是最新的，无需同步"
+          fi
