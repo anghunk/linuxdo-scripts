@@ -15,8 +15,7 @@
         </button>
         <a
           :href="'https://linux.do/t/topic/' + item.id"
-          target="_blank"
-          @click="handleLinkClick(item.id)"
+          @click="handleLinkClick($event, item.id)"
           class="news-link"
           :ref="`link-${item.id}`"
           @mouseenter="showTooltip($event, item.title)"
@@ -54,10 +53,44 @@ export default {
     }
   },
   methods: {
-    handleLinkClick(itemId) {
-      // 点击链接时，向父组件发送移除事件
+    async handleLinkClick(event, itemId) {
+      // 阻止默认的链接行为
+      event.preventDefault();
+
+      // 构建目标URL
+      const targetUrl = `https://linux.do/t/topic/${itemId}`;
+
+      try {
+        const browserAPI = typeof browser !== "undefined" ? browser : chrome;
+
+        // 查询当前活动的标签页
+        const tabs = await new Promise((resolve) => {
+          browserAPI.tabs.query({ active: true, currentWindow: true }, resolve);
+        });
+
+        if (tabs.length > 0) {
+          const currentTab = tabs[0];
+
+          // 检查当前活动标签页是否为 linux.do
+          if (currentTab.url && currentTab.url.includes('linux.do')) {
+            // 如果当前标签页是 linux.do，直接在当前标签页跳转
+            browserAPI.tabs.update(currentTab.id, { url: targetUrl });
+          } else {
+            // 如果不是 linux.do，创建新标签页
+            browserAPI.tabs.create({ url: targetUrl });
+          }
+        } else {
+          // 如果无法获取标签页信息，默认创建新标签页
+          browserAPI.tabs.create({ url: targetUrl });
+        }
+      } catch (error) {
+        console.error('处理链接跳转失败：', error);
+        // 出错时回退到新标签页打开
+        window.open(targetUrl, '_blank');
+      }
+
+      // 向父组件发送移除事件
       this.$emit("remove-item", itemId);
-      // 链接的默认行为（跳转）会正常执行
     },
 
     previewPost(itemId) {
