@@ -7,6 +7,8 @@ export default defineContentScript({
 	cssInjectionMode: 'ui',
 
 	async main(ctx) {
+		if (window.location.pathname.includes('/raw/')) return;
+
 		const ui = await createShadowRootUi(ctx, {
 			name: 'linuxdo-scripts-ui',
 			position: 'inline',

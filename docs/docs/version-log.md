@@ -1,5 +1,11 @@
 # Changelog / 更新日志
 
+## 1.5.27
+
+- fix: 当链接处于 `raw` 页面时，停止渲染扩展以避免不必要的冲突 #313
+
+https://github.com/anghunk/linuxdo-scripts/releases/tag/1.5.27
+
 ## 1.5.26
 
 - feat: 重构等级对话框为卡片式 UI 并添加可视化样式
