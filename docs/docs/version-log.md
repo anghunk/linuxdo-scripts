@@ -1,5 +1,11 @@
 # Changelog / 更新日志
 
+## 1.5.28
+
+- fix: 修复一些 UI 问题
+
+https://github.com/anghunk/linuxdo-scripts/releases/tag/1.5.28
+
 ## 1.5.27
 
 - fix: 当链接处于 `raw` 页面时，停止渲染扩展以避免不必要的冲突 #313
