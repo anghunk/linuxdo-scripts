@@ -518,11 +518,13 @@
   margin-bottom: 10px;
   justify-content: flex-start;
   text-align: left;
+  width: auto !important;
 }
 
 .topicpreview-btn,
 .donottopic-btn,
 .removedonottopic-btn {
+  height: 30px !important;
   padding: 4px 12px !important;
   font-size: 14px !important;
   opacity: 0 !important;
@@ -996,6 +998,7 @@ body.body-preview #main-outlet-wrapper {
   padding: 10px;
   border-radius: 5px;
   z-index: 9;
+  box-sizing: border-box;
 }
 
 .emojiPicker img {
@@ -1255,6 +1258,7 @@ body.body-preview #main-outlet-wrapper {
   padding: 10px;
   border-radius: 5px;
   z-index: 9;
+  box-sizing: border-box;
 }
 
 .ObsidianCalloutsPicke>div {

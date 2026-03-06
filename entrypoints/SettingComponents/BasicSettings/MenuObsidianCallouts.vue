@@ -203,6 +203,7 @@ export default {
             ObsidianCalloutsPicke.style.background = "#FFF";
             ObsidianCalloutsPicke.style.border = "1px solid #ddd";
             ObsidianCalloutsPicke.style.padding = "10px";
+            ObsidianCalloutsPicke.style.height = document.querySelector('.d-editor-textarea-column').getBoundingClientRect().height + 'px';
             if (
               document.body.contains(document.querySelector(".ObsidianCalloutsPicke"))
             ) {
