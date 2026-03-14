@@ -14,7 +14,7 @@
   </a-space>
 
   <a-divider />
- 
+
   <div class="item">
     <div class="label">1.开启该设置时，会“隐藏”论坛左侧触发的设置按钮。</div>
     <a-switch v-model="isShow" @change="ShowSettingConfig" />
@@ -45,10 +45,54 @@
     </p>
     <a href="javascript:void(0)" target="_blank" @click="gosidepanel">点击显示侧边链接</a>
   </div>
+
+  <a-divider />
+
+  <div class="site-access">
+    <div class="site-access-title">有权访问的网站</div>
+    <p class="site-access-desc">
+      默认仅允许访问 linux.do 及其子域名。AI API、WebDAV 等外部服务，需要在这里单独授权对应站点。
+    </p>
+
+    <div class="site-access-group">
+      <div class="group-title">默认可访问网站</div>
+      <div class="site-list tags">
+        <span v-for="site in defaultSites" :key="site" class="site-tag fixed">{{ formatSiteLabel(site) }}</span>
+      </div>
+    </div>
+
+    <div class="site-access-group">
+      <div class="group-title">已额外授权的网站</div>
+      <div v-if="optionalSites.length > 0" class="site-list rows">
+        <div class="site-row" v-for="site in optionalSites" :key="site">
+          <span class="site-origin">{{ formatSiteLabel(site) }}</span>
+          <a-button size="small" status="danger" @click="removeSiteAccess(site)">移除</a-button>
+        </div>
+      </div>
+      <div v-else class="site-empty">暂无额外授权站点</div>
+    </div>
+
+    <div class="site-access-form">
+      <input
+        v-model.trim="siteAccessInput"
+        type="text"
+        placeholder="https://api.example.com/v1/chat/completions"
+      />
+      <a-space>
+        <a-button type="primary" :loading="siteAccessLoading" @click="requestSiteAccess">授权站点</a-button>
+        <a-button :loading="siteAccessRefreshing" @click="loadAuthorizedSites">刷新</a-button>
+      </a-space>
+    </div>
+
+    <div class="site-access-tip">
+      撤销站点权限后，依赖该站点的 AI 或 WebDAV 功能会立即失效，直到重新授权。
+    </div>
+  </div>
 </template>
 
 <script>
 import Question from "./SVG/Question.vue";
+import { requestSitePermission } from "../../utilities/sitePermissions.js";
 
 export default {
   components: {
@@ -61,9 +105,88 @@ export default {
       clickTarget: "sidepanel",
       activeKey: ["1"],
       CompatibilityReminder: false,
+      defaultSites: ["https://linux.do/*", "https://*.linux.do/*"],
+      optionalSites: [],
+      siteAccessInput: "",
+      siteAccessLoading: false,
+      siteAccessRefreshing: false,
     };
   },
   methods: {
+    // 与 background 通信，读取或移除已授权站点
+    sendRuntimeMessage(action, payload = {}) {
+      const browserAPI = typeof browser !== "undefined" ? browser : chrome;
+      return new Promise((resolve, reject) => {
+        browserAPI.runtime.sendMessage({ action, ...payload }, (response) => {
+          if (browserAPI.runtime.lastError) {
+            reject(new Error(browserAPI.runtime.lastError.message));
+            return;
+          }
+          resolve(response);
+        });
+      });
+    },
+    formatSiteLabel(site) {
+      return site.replace(/^https:\/\//, "");
+    },
+    // 获取当前已授权的默认站点和额外站点
+    async loadAuthorizedSites() {
+      this.siteAccessRefreshing = true;
+      try {
+        const response = await this.sendRuntimeMessage("permissions_get_sites");
+        if (!response?.success) {
+          throw new Error(response?.error || "获取已授权站点失败");
+        }
+        this.defaultSites = response.defaultSites || this.defaultSites;
+        this.optionalSites = response.optionalSites || [];
+      } catch (error) {
+        this.$message.error(error.message || "获取已授权站点失败");
+      } finally {
+        this.siteAccessRefreshing = false;
+      }
+    },
+    // 必须在用户点击事件里直接申请权限，避免 Chrome MV3 丢失 user gesture
+    async requestSiteAccess() {
+      if (!this.siteAccessInput) {
+        this.$message.warning("请输入需要授权的站点 URL");
+        return;
+      }
+
+      this.siteAccessLoading = true;
+      try {
+        const response = await requestSitePermission(this.siteAccessInput);
+        if (!response?.success) {
+          throw new Error(response?.error || "站点授权失败");
+        }
+
+        this.siteAccessInput = "";
+        this.$message.success(response.origin ? `已授权 ${response.origin}` : "已授权默认站点");
+        await this.loadAuthorizedSites();
+      } catch (error) {
+        this.$message.error(error.message || "站点授权失败");
+      } finally {
+        this.siteAccessLoading = false;
+      }
+    },
+    // 移除某个额外授权站点
+    async removeSiteAccess(site) {
+      if (!window.confirm(`确定移除 ${this.formatSiteLabel(site)} 的访问权限吗？`)) {
+        return;
+      }
+
+      try {
+        const response = await this.sendRuntimeMessage("permissions_remove_site", {
+          origin: site,
+        });
+        if (!response?.success) {
+          throw new Error(response?.error || "移除站点权限失败");
+        }
+        this.$message.success(`已移除 ${response.origin}`);
+        await this.loadAuthorizedSites();
+      } catch (error) {
+        this.$message.error(error.message || "移除站点权限失败");
+      }
+    },
     gosidepanel() {
       const browserAPI = typeof browser !== "undefined" ? browser : chrome;
       browserAPI.tabs.create({
@@ -89,11 +212,9 @@ export default {
         url: browserAPI.runtime.getURL("options.html"),
       });
     },
-
     goGithub() {
       window.open("https://github.com/anghunk/linuxdo-scripts", "_blank");
     },
-
     // 是否隐藏设置按钮
     ShowSettingConfig() {
       localStorage.setItem("isShowSettingConfig", this.isShow);
@@ -108,19 +229,16 @@ export default {
         this.$message.success("切换成功！");
       });
     },
-
     onClickTargetChange() {
       const browserAPI = typeof browser !== "undefined" ? browser : chrome;
       browserAPI.storage?.local.set({ clickOpenTarget: this.clickTarget }, () => {
         this.$message.success("已更新点击打开方式！");
       });
     },
-
     // 切换兼容性提示显示
     showCompatibilityReminder() {
       this.CompatibilityReminder = !this.CompatibilityReminder;
     },
-
     // 将已读按钮放在最前方
     ReadonlyBefore() {
       try {
@@ -142,7 +260,7 @@ export default {
       }
     },
   },
-  created() {
+  async created() {
     const isShowSettingConfig = localStorage.getItem("isShowSettingConfig");
     const isReadonlyBefore = localStorage.getItem("isReadonlyBefore");
 
@@ -158,6 +276,8 @@ export default {
     browserAPI.storage?.local.get(["clickOpenTarget"], (res) => {
       if (res && res.clickOpenTarget) this.clickTarget = res.clickOpenTarget;
     });
+
+    await this.loadAuthorizedSites();
   },
 };
 </script>
@@ -193,7 +313,8 @@ export default {
   }
 }
 
-.CompatibilityReminder {
+.CompatibilityReminder,
+.site-access {
   color: #333;
   font-size: 13px;
   margin-top: 10px;
@@ -204,6 +325,94 @@ export default {
   a {
     color: #1890ff;
     text-decoration: underline;
+  }
+}
+
+.site-access {
+  background: #f7f8fa;
+
+  .site-access-title {
+    font-size: 14px;
+    font-weight: 600;
+    margin-bottom: 8px;
+  }
+
+  .site-access-desc,
+  .site-access-tip {
+    line-height: 1.6;
+    opacity: 0.8;
+  }
+
+  .site-access-group + .site-access-group,
+  .site-access-form,
+  .site-access-tip {
+    margin-top: 12px;
+  }
+
+  .group-title {
+    font-size: 13px;
+    font-weight: 600;
+    margin-bottom: 8px;
+  }
+
+  .site-list.tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .site-tag {
+    display: inline-flex;
+    align-items: center;
+    padding: 4px 8px;
+    border-radius: 999px;
+    background: #e8f3ff;
+    color: #165dff;
+    word-break: break-all;
+
+    &.fixed {
+      background: #e8ffea;
+      color: #00a854;
+    }
+  }
+
+  .site-list.rows {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .site-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 8px 10px;
+    border-radius: 6px;
+    background: #fff;
+  }
+
+  .site-origin {
+    word-break: break-all;
+    flex: 1;
+  }
+
+  .site-empty {
+    opacity: 0.7;
+  }
+
+  .site-access-form {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+
+    input {
+      width: 100%;
+      border: 1px solid #d9d9d9;
+      border-radius: 6px;
+      padding: 8px 10px;
+      box-sizing: border-box;
+    }
   }
 }
 </style>

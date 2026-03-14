@@ -232,17 +232,10 @@ export default {
 			if (!this.username) {
 				const avatarImg = $('#toggle-current-user img.avatar');
 				const src = avatarImg.length ? avatarImg.attr('src') : null;
-				if (src) {
-					if (window.location.hostname === 'linux.do') {
-						const match = src.match(/\/user_avatar\/linux\.do\/([^\/]+)/);
-						if (match && match[1]) {
-							this.username = match[1];
-						}
-					} else if (window.location.hostname === 'idcflare.com') {
-						const match = src.match(/\/user_avatar\/idcflare\.com\/([^\/]+)/);
-						if (match && match[1]) {
-							this.username = match[1];
-						}
+				if (src && /\/user_avatar\/(?:[^\/]+\.)?linux\.do\//.test(src)) {
+					const match = src.match(/\/user_avatar\/(?:[^\/]+\.)?linux\.do\/([^\/]+)/);
+					if (match && match[1]) {
+						this.username = match[1];
 					}
 				}
 			}
