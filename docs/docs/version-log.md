@@ -1,5 +1,11 @@
 # Changelog / 更新日志
 
+## 1.5.32
+
+- fix: 修复一些已知问题
+
+https://github.com/anghunk/linuxdo-scripts/releases/tag/1.5.32
+
 ## 1.5.28
 
 - fix: 修复一些 UI 问题
