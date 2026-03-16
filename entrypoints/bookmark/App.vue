@@ -397,6 +397,7 @@ class WebDAVClient {
 
 import categoryMap from './data/categoryMap.js';
 import SidebarMenu from './components/SidebarMenu.vue';
+import { requestSitePermission } from '../utilities/sitePermissions.js';
 
 export default {
 	components: {
@@ -1109,43 +1110,12 @@ export default {
 		},
 
 		async checkAndRequestPermission(url) {
-			var browserAPI = typeof browser !== 'undefined' ? browser : chrome;
-			try {
-				if (!url.startsWith('http://') && !url.startsWith('https://')) {
-					throw new Error('URL 必须以 http://或 https://开头');
-				}
-
-				let origin;
-				try {
-					const cleanUrl = url.replace(/\/$/, '');
-					origin = new URL(cleanUrl).origin + '/*';
-				} catch (e) {
-					throw new Error('无效的 URL 格式');
-				}
-
-				try {
-					const existingPermissions = await browserAPI.permissions.contains({
-						origins: [origin],
-					});
-
-					if (!existingPermissions) {
-						const granted = await browserAPI.permissions.request({
-							origins: [origin],
-						});
-
-						if (!granted) {
-							throw new Error('用户拒绝了权限请求');
-						}
-					}
-				} catch (e) {
-					console.error('权限请求错误：', e);
-					throw new Error('权限请求失败，请确保 URL 正确且已授予权限');
-				}
-
-				return true;
-			} catch (error) {
-				throw error;
+			// 权限请求必须保留在当前点击流程中，避免 Chrome MV3 拒绝弹出授权
+			const response = await requestSitePermission(url);
+			if (!response?.success) {
+				throw new Error(response?.error || '权限请求失败，请确保 URL 正确且已授予权限');
 			}
+			return true;
 		},
 
 		// 保存配置
@@ -1217,21 +1187,6 @@ export default {
 			} catch (error) {
 				console.error('保存配置错误：', error);
 				this.$message.error(error.message || '保存配置失败');
-			}
-		},
-
-		async requestWebDAVPermission(webdavUrl) {
-			const url = new URL(webdavUrl);
-			const pattern = `${url.protocol}//${url.hostname}/*`;
-
-			try {
-				const granted = await chrome.permissions.request({
-					origins: [pattern],
-				});
-				return granted;
-			} catch (err) {
-				console.error('Permission request failed:', err);
-				return false;
 			}
 		},
 

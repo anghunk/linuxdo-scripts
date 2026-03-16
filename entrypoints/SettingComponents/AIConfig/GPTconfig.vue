@@ -159,6 +159,7 @@ import $ from 'jquery';
 import { marked } from 'marked';
 import storageCompat, { getSafeSettings } from '../../utilities/storageCompat.js';
 import dbStorage from '../../utilities/indexedDBStorage.js';
+import { requestSitePermission } from '../../utilities/sitePermissions.js';
 export default {
 	props: {
 		value: {
@@ -278,6 +279,21 @@ export default {
 			const regex = /^(https:\/\/linux\.do\/t\/topic\/\d+)(\/\d+)?$/;
 			const match = url.match(regex);
 			return match ? match[1] : url;
+		},
+		// 权限请求必须直接发生在用户点击触发的配置/测试流程里
+		async ensureApiUrlPermission(url) {
+			const response = await requestSitePermission(url);
+			if (!response?.success) {
+				throw new Error(response?.error || '请先授权当前 AI API 所在站点');
+			}
+			return response;
+		},
+		// 统一处理后台返回的缺权限提示，避免各处拼接错误信息
+		formatPermissionError(response) {
+			if (response?.needs_permission && response?.origin) {
+				return `请先在「有权访问的网站」中授权 ${response.origin}`;
+			}
+			return response?.data?.error?.message || response?.error || '未知错误';
 		},
 		// 是否开启手动生成
 		setCreatedBtn() {
@@ -596,6 +612,13 @@ export default {
 			const config = settingsData ? settingsData.gptdata : this.localChecked;
 			const browserAPI = typeof browser !== 'undefined' ? browser : chrome;
 
+			try {
+				await this.ensureApiUrlPermission(config.api_url);
+			} catch (error) {
+				$('.gpt-summary').html(`生成失败：${error.message}`);
+				throw error;
+			}
+
 			return new Promise((resolve, reject) => {
 				let str = $('#topic-title h1 a').text();
 
@@ -704,8 +727,9 @@ export default {
 
 						if (!response?.started) {
 							browserAPI.runtime.onMessage.removeListener(streamListener);
-							$('.gpt-summary').html(`生成失败：无法启动流式请求`);
-							reject(new Error('无法启动流式请求'));
+							const errorMsg = this.formatPermissionError(response);
+							$('.gpt-summary').html(`生成失败：${errorMsg}`);
+							reject(new Error(errorMsg));
 						}
 					},
 				);
@@ -719,6 +743,13 @@ export default {
 			const settingsData = getSafeSettings();
 			const config = settingsData ? settingsData.gptdata : this.localChecked;
 			const browserAPI = typeof browser !== 'undefined' ? browser : chrome;
+
+			try {
+				await this.ensureApiUrlPermission(config.api_url);
+			} catch (error) {
+				$('.aireply-popup-text').html(`生成失败：${error.message}`);
+				throw error;
+			}
 
 			return new Promise((resolve, reject) => {
 				const str = $('#topic-title h1 a').text() + $('#post_1 .cooked').text();
@@ -776,7 +807,7 @@ ${str}`;
 							this.AIReplyPopup(content);
 							resolve();
 						} else {
-							const errorMsg = response.data?.error?.message || response.error || '未知错误';
+							const errorMsg = this.formatPermissionError(response);
 							$('.aireply-popup-text').html(`生成失败：${errorMsg}`);
 							reject(new Error(errorMsg));
 						}
@@ -795,6 +826,7 @@ ${str}`;
 			const browserAPI = typeof browser !== 'undefined' ? browser : chrome;
 
 			try {
+				await this.ensureApiUrlPermission(this.localChecked.api_url);
 				const headers = {
 					'Content-Type': 'application/json',
 				};
@@ -848,7 +880,7 @@ ${str}`;
 						message: '连接成功！API 配置正确。',
 					};
 				} else {
-					const errorMsg = response.data?.error?.message || response.error || '未知错误';
+					const errorMsg = this.formatPermissionError(response);
 					this.connectionStatus = {
 						type: 'error',
 						message: `连接失败：${errorMsg}`,
@@ -869,6 +901,15 @@ ${str}`;
 		// AI 根据新建话题内容生成标题（通过 background script 绕过 CORS）
 		async getCreateNewTopicTitle() {
 			const browserAPI = typeof browser !== 'undefined' ? browser : chrome;
+			const settingsData = getSafeSettings();
+			const config = settingsData ? settingsData.gptdata : this.localChecked;
+
+			try {
+				await this.ensureApiUrlPermission(config.api_url);
+			} catch (error) {
+				$('#reply-title').val(`抱歉生成失败：${error.message}`);
+				throw error;
+			}
 
 			return new Promise((resolve, reject) => {
 				let topic_contentdata = '';
@@ -877,8 +918,6 @@ ${str}`;
 				} else {
 					topic_contentdata = $('.d-editor-preview').html();
 				}
-				const settingsData = getSafeSettings();
-				const config = settingsData ? settingsData.gptdata : this.localChecked;
 				const prompt = `${config.prompt2}
 帖子内容如下：
 ${topic_contentdata}`;
@@ -933,7 +972,7 @@ ${topic_contentdata}`;
 							$('#reply-title').val(title);
 							resolve();
 						} else {
-							const errorMsg = response.data?.error?.message || response.error || '未知错误';
+							const errorMsg = this.formatPermissionError(response);
 							$('#reply-title').val(`抱歉生成失败：${errorMsg}`);
 							reject(new Error(errorMsg));
 						}
