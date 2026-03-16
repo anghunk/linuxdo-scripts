@@ -1,7 +1,7 @@
 {
   "name": "linuxdo-scripts",
   "description": "manifest.json description",
-  "version": "1.5.28",
+  "version": "1.5.29",
   "type": "module",
   "scripts": {
     "dev": "wxt",
@@ -19,7 +19,6 @@
   },
   "dependencies": {
     "@arco-themes/vue-indigo-sky": "^0.0.1",
-    "element-plus": "^2.9.1",
     "html2canvas": "^1.4.1",
     "jquery": "^3.7.1",
     "marked": "^14.1.1",
