@@ -11,12 +11,18 @@ export default defineConfig({
 		name: 'LinuxDo Scripts',
 		version: pkg.version,
 		description: '为 linux.do 用户提供了一些增强功能。',
-		permissions: ['storage', 'sidePanel', 'tabs'],
+		permissions: ['storage', 'sidePanel', 'tabs', 'scripting'],
 		host_permissions: linuxDoMatches,
 		optional_host_permissions: ['http://*/*', 'https://*/*'],
 		side_panel: {
 			default_path: 'sidepanel.html',
 		},
+		web_accessible_resources: [
+			{
+				resources: ['content-scripts/*'],
+				matches: ['<all_urls>'],
+			},
+		],
 	},
 	hooks: {
 		'build:manifestGenerated': (wxt, manifest) => {

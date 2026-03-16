@@ -6,6 +6,9 @@ const browserAPI = typeof browser !== 'undefined' ? browser : chrome;
 const DEFAULT_SITE_PATTERNS = ['https://linux.do/*', 'https://*.linux.do/*'];
 const LINUX_DO_TAB_PATTERNS = ['*://linux.do/*', '*://*.linux.do/*'];
 
+// 已注入 content script 的标签页 ID 集合
+const injectedTabs = new Set<number>();
+
 type SiteAccessCheckResult =
 	| {
 			success: true;
@@ -39,6 +42,82 @@ type SiteAccessResult =
 
 function isLinuxDoHostname(hostname: string) {
 	return hostname === 'linux.do' || hostname.endsWith('.linux.do');
+}
+
+// 检查 URL 是否匹配已授权的站点
+async function isAuthorizedSite(url: string): Promise<boolean> {
+	try {
+		const origin = new URL(url).origin;
+		const originPattern = `${origin}/*`;
+
+		// 检查是否是默认站点
+		if (DEFAULT_SITE_PATTERNS.includes(originPattern)) {
+			return true;
+		}
+
+		// 检查是否是已授权的可选站点
+		const allowed = await browserAPI.permissions.contains({ origins: [originPattern] });
+		return allowed;
+	} catch {
+		return false;
+	}
+}
+
+// 动态注入 content script 到指定标签页
+async function injectContentScript(tabId: number, url: string): Promise<void> {
+	// 检查是否已注入
+	if (injectedTabs.has(tabId)) {
+		return;
+	}
+
+	// 检查是否有权限
+	const authorized = await isAuthorizedSite(url);
+	if (!authorized) {
+		return;
+	}
+
+	// 排除 raw 页面
+	try {
+		const urlObj = new URL(url);
+		if (urlObj.pathname.includes('/raw/')) {
+			return;
+		}
+	} catch {
+		return;
+	}
+
+	try {
+		// 注入 CSS
+		await browserAPI.scripting.insertCSS({
+			target: { tabId },
+			files: ['content-scripts/content.css'],
+		});
+
+		// 注入 JS
+		await browserAPI.scripting.executeScript({
+			target: { tabId },
+			files: ['content-scripts/content.js'],
+		});
+
+		injectedTabs.add(tabId);
+		console.log(`[动态注入] 已向标签页 ${tabId} 注入 content script`);
+	} catch (error) {
+		console.error(`[动态注入] 注入失败:`, error);
+	}
+}
+
+// 检查并注入到所有匹配的已打开标签页
+async function injectToAllAuthorizedTabs(): Promise<void> {
+	try {
+		const tabs = await browserAPI.tabs.query({});
+		for (const tab of tabs) {
+			if (tab.id && tab.url) {
+				await injectContentScript(tab.id, tab.url);
+			}
+		}
+	} catch (error) {
+		console.error('[动态注入] 扫描标签页失败:', error);
+	}
 }
 
 function normalizeOriginPattern(input: string) {
@@ -203,7 +282,11 @@ browserAPI.runtime.onMessage.addListener((request, sender, sendResponse) => {
 	if (request.action === 'permissions_remove_site') {
 		(async () => {
 			try {
-				const origin = normalizeOriginPattern(request.origin || request.url || '');
+				const origin = request.origin || request.url || '';
+				if (!origin) {
+					sendResponse({ success: false, error: 'URL 不能为空' });
+					return;
+				}
 				if (DEFAULT_SITE_PATTERNS.includes(origin)) {
 					sendResponse({ success: false, error: '默认站点权限不可移除' });
 					return;
@@ -520,4 +603,37 @@ browserAPI.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
 		return true;
 	}
+});
+
+// 监听权限变化，当添加新站点权限时注入 content script
+// 注意：onAdded 在构建环境的 fake-browser 中未实现，需要 try-catch
+try {
+	if (browserAPI.permissions?.onAdded) {
+		browserAPI.permissions.onAdded.addListener(async (permissions) => {
+			if (permissions.origins && permissions.origins.length > 0) {
+				console.log('[动态注入] 检测到新站点权限:', permissions.origins);
+				await injectToAllAuthorizedTabs();
+			}
+		});
+	}
+} catch {
+	// 构建环境中 permissions.onAdded 可能未实现，忽略即可
+}
+
+// 监听标签页更新，当导航到已授权的站点时注入 content script
+browserAPI.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
+	// 页面开始加载时清理注入状态（刷新或导航到新页面）
+	if (changeInfo.status === 'loading') {
+		injectedTabs.delete(tabId);
+	}
+
+	// 页面加载完成时注入 content script
+	if (changeInfo.status === 'complete' && tab.url) {
+		await injectContentScript(tabId, tab.url);
+	}
+});
+
+// 监听标签页关闭，清理注入状态
+browserAPI.tabs.onRemoved.addListener((tabId) => {
+	injectedTabs.delete(tabId);
 });

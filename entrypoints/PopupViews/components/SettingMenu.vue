@@ -76,7 +76,7 @@
       <input
         v-model.trim="siteAccessInput"
         type="text"
-        placeholder="https://api.example.com/v1/chat/completions"
+        placeholder="https://linux.do/*"
       />
       <a-space>
         <a-button type="primary" :loading="siteAccessLoading" @click="requestSiteAccess">授权站点</a-button>
