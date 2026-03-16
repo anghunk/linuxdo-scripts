@@ -612,7 +612,10 @@ export default {
 						if (document.body.contains(document.querySelector('.emojiPicker'))) {
 							document.querySelector('.emojiPicker').remove();
 						} else {
-							emojiButton.after(emojiPicker);
+							var previewWrapper = document.querySelector('.d-editor-preview-wrapper');
+							if (previewWrapper) {
+								previewWrapper.prepend(emojiPicker);
+							}
 						}
 						emojiPicker.addEventListener('click', function (e) {
 							if (e.target.tagName === 'IMG') {

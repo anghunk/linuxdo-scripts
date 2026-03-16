@@ -209,7 +209,10 @@ export default {
             ) {
               document.querySelector(".ObsidianCalloutsPicke").remove();
             } else {
-              ObsidianCalloutsBtn.after(ObsidianCalloutsPicke);
+              var previewWrapper = document.querySelector('.d-editor-preview-wrapper');
+              if (previewWrapper) {
+                previewWrapper.prepend(ObsidianCalloutsPicke);
+              }
             }
             ObsidianCalloutsPicke.addEventListener("click", function (e) {
               var textAreaObsidianCallouts = document.querySelector(".d-editor-input");

@@ -987,7 +987,7 @@ body.body-preview #main-outlet-wrapper {
 
 .emojiPicker {
   top: 0;
-  left: 100%;
+  left: 0 !important;
   position: absolute;
   display: grid;
   grid-template-columns: repeat(12, 1fr);
@@ -1250,7 +1250,7 @@ body.body-preview #main-outlet-wrapper {
 .ObsidianCalloutsPicke {
   width: 560px;
   top: 0;
-  left: 100%;
+  left: 0 !important;
   position: absolute;
   height: 100%;
   overflow: auto;
@@ -1272,4 +1272,8 @@ body.body-preview #main-outlet-wrapper {
   border-radius: var(--d-button-border-radius);
   background-color: var(--d-button-default-bg-color);
   height: 38px;
+}
+
+.d-editor-preview-wrapper  {
+  position: relative;
 }
