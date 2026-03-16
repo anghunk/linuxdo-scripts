@@ -1010,7 +1010,7 @@ body.body-preview #main-outlet-wrapper {
 .emojiPickerNeo {
   width: 560px;
   top: 0;
-  left: 100%;
+  left: 0 !important;
   position: absolute;
   display: flex;
   flex-wrap: wrap;
@@ -1274,6 +1274,6 @@ body.body-preview #main-outlet-wrapper {
   height: 38px;
 }
 
-.d-editor-preview-wrapper  {
+.d-editor-preview-wrapper {
   position: relative;
 }

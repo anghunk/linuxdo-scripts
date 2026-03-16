@@ -1,17 +1,5 @@
 # Changelog / 更新日志
 
-## 1.5.30
-
-- feat: 支持动态注入 content script 到新授权的域名 #321
-
-https://github.com/anghunk/linuxdo-scripts/releases/tag/1.5.30
-
-## 1.5.29
-
-- feat: 支持动态注入 content script 到新授权的域名 #321
-
-https://github.com/anghunk/linuxdo-scripts/releases/tag/1.5.29
-
 ## 1.5.28
 
 - fix: 修复一些 UI 问题

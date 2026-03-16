@@ -193,27 +193,27 @@ export default {
           ObsidianCalloutsBtn.innerHTML = `<svg class="fa d-icon d-icon-far-lightbulb svg-icon svg-string" aria-hidden="true" xmlns="http://www.w3.org/2000/svg"><use href="#far-lightbulb"></use></svg>`;
           editor.appendChild(ObsidianCalloutsBtn);
           ObsidianCalloutsBtn.addEventListener("click", function () {
+            var previewWrapper = document.querySelector('.d-editor-preview-wrapper');
+            if (!previewWrapper) return;
+
+            // 移除已存在的选择器
+            if (document.body.contains(document.querySelector(".ObsidianCalloutsPicke"))) {
+              document.querySelector(".ObsidianCalloutsPicke").remove();
+              return;
+            }
+
             var ObsidianCalloutsPicke = document.createElement("div");
             ObsidianCalloutsPicke.className = "ObsidianCalloutsPicke";
             var emojiSetHtml = emojiSet
               .map((emo) => `<div title="${emo.value}">${emo.html}</div>`)
               .join("");
             ObsidianCalloutsPicke.innerHTML = emojiSetHtml;
-            ObsidianCalloutsPicke.style.position = "absolute";
             ObsidianCalloutsPicke.style.background = "#FFF";
             ObsidianCalloutsPicke.style.border = "1px solid #ddd";
             ObsidianCalloutsPicke.style.padding = "10px";
             ObsidianCalloutsPicke.style.height = document.querySelector('.d-editor-textarea-column').getBoundingClientRect().height + 'px';
-            if (
-              document.body.contains(document.querySelector(".ObsidianCalloutsPicke"))
-            ) {
-              document.querySelector(".ObsidianCalloutsPicke").remove();
-            } else {
-              var previewWrapper = document.querySelector('.d-editor-preview-wrapper');
-              if (previewWrapper) {
-                previewWrapper.prepend(ObsidianCalloutsPicke);
-              }
-            }
+            // 使用 prepend 放在 d-editor-preview-wrapper 容器的第一个位置
+            previewWrapper.prepend(ObsidianCalloutsPicke);
             ObsidianCalloutsPicke.addEventListener("click", function (e) {
               var textAreaObsidianCallouts = document.querySelector(".d-editor-input");
               if (!textAreaObsidianCallouts) {

@@ -1,211 +1,7 @@
 export default defineBackground(() => {
 	console.log('Hello background!', { id: browser.runtime.id });
 });
-
 const browserAPI = typeof browser !== 'undefined' ? browser : chrome;
-const DEFAULT_SITE_PATTERNS = ['https://linux.do/*', 'https://*.linux.do/*'];
-const LINUX_DO_TAB_PATTERNS = ['*://linux.do/*', '*://*.linux.do/*'];
-
-// 已注入 content script 的标签页 ID 集合
-const injectedTabs = new Set<number>();
-
-type SiteAccessCheckResult =
-	| {
-			success: true;
-			allowed: true;
-			origin: null;
-			source: 'default';
-	  }
-	| {
-			success: true;
-			allowed: true;
-			origin: string;
-			source: 'optional';
-	  }
-	| {
-			success: true;
-			allowed: false;
-			origin: string;
-			source: 'missing';
-	  };
-
-type SiteAccessResult =
-	| SiteAccessCheckResult
-	| {
-			success: false;
-			allowed: false;
-			origin: string;
-			source: 'missing';
-			error: string;
-			needs_permission: true;
-	  };
-
-function isLinuxDoHostname(hostname: string) {
-	return hostname === 'linux.do' || hostname.endsWith('.linux.do');
-}
-
-// 检查 URL 是否匹配已授权的站点
-async function isAuthorizedSite(url: string): Promise<boolean> {
-	try {
-		const origin = new URL(url).origin;
-		const originPattern = `${origin}/*`;
-
-		// 检查是否是默认站点
-		if (DEFAULT_SITE_PATTERNS.includes(originPattern)) {
-			return true;
-		}
-
-		// 检查是否是已授权的可选站点
-		const allowed = await browserAPI.permissions.contains({ origins: [originPattern] });
-		return allowed;
-	} catch {
-		return false;
-	}
-}
-
-// 动态注入 content script 到指定标签页
-async function injectContentScript(tabId: number, url: string): Promise<void> {
-	// 检查是否已注入
-	if (injectedTabs.has(tabId)) {
-		return;
-	}
-
-	// 检查是否有权限
-	const authorized = await isAuthorizedSite(url);
-	if (!authorized) {
-		return;
-	}
-
-	// 排除 raw 页面
-	try {
-		const urlObj = new URL(url);
-		if (urlObj.pathname.includes('/raw/')) {
-			return;
-		}
-	} catch {
-		return;
-	}
-
-	try {
-		// 注入 CSS
-		await browserAPI.scripting.insertCSS({
-			target: { tabId },
-			files: ['content-scripts/content.css'],
-		});
-
-		// 注入 JS
-		await browserAPI.scripting.executeScript({
-			target: { tabId },
-			files: ['content-scripts/content.js'],
-		});
-
-		injectedTabs.add(tabId);
-		console.log(`[动态注入] 已向标签页 ${tabId} 注入 content script`);
-	} catch (error) {
-		console.error(`[动态注入] 注入失败:`, error);
-	}
-}
-
-// 检查并注入到所有匹配的已打开标签页
-async function injectToAllAuthorizedTabs(): Promise<void> {
-	try {
-		const tabs = await browserAPI.tabs.query({});
-		for (const tab of tabs) {
-			if (tab.id && tab.url) {
-				await injectContentScript(tab.id, tab.url);
-			}
-		}
-	} catch (error) {
-		console.error('[动态注入] 扫描标签页失败:', error);
-	}
-}
-
-function normalizeOriginPattern(input: string) {
-	const rawInput = (input || '').trim();
-	if (!rawInput) {
-		throw new Error('URL 不能为空');
-	}
-
-	const normalizedInput = rawInput.endsWith('/*') ? rawInput.slice(0, -2) : rawInput;
-	if (!normalizedInput.startsWith('http://') && !normalizedInput.startsWith('https://')) {
-		throw new Error('URL 必须以 http:// 或 https:// 开头');
-	}
-
-	const url = new URL(normalizedInput);
-	return `${url.origin}/*`;
-}
-
-function isDefaultSiteUrl(input: string) {
-	try {
-		const url = new URL(input);
-		return url.protocol === 'https:' && isLinuxDoHostname(url.hostname);
-	} catch {
-		return false;
-	}
-}
-
-async function getOptionalOrigins() {
-	const permissions = await browserAPI.permissions.getAll();
-	const origins = permissions.origins || [];
-	return origins
-		.filter((origin) => !DEFAULT_SITE_PATTERNS.includes(origin))
-		.sort((left, right) => left.localeCompare(right));
-}
-
-async function checkSiteAccess(input: string): Promise<SiteAccessCheckResult> {
-	if (isDefaultSiteUrl(input)) {
-		return {
-			success: true,
-			allowed: true,
-			origin: null,
-			source: 'default',
-		};
-	}
-
-	const origin = normalizeOriginPattern(input);
-	const allowed = await browserAPI.permissions.contains({ origins: [origin] });
-	if (allowed) {
-		return {
-			success: true,
-			allowed: true,
-			origin,
-			source: 'optional',
-		};
-	}
-
-	return {
-		success: true,
-		allowed: false,
-		origin,
-		source: 'missing',
-	};
-}
-
-async function ensureSiteAccess(input: string): Promise<SiteAccessResult> {
-	const result = await checkSiteAccess(input);
-	if (result.allowed) {
-		return result;
-	}
-
-	return {
-		...result,
-		success: false,
-		error: `请先在「有权访问的网站」中授权 ${result.origin}`,
-		needs_permission: true,
-	};
-}
-
-function sendMissingPermission(
-	sendResponse: (response?: any) => void,
-	result: Extract<SiteAccessResult, { success: false }>,
-) {
-	sendResponse({
-		success: false,
-		error: result.error,
-		needs_permission: true,
-		origin: result.origin,
-	});
-}
 
 // 根据用户偏好切换点击扩展图标时的打开行为（sidepanel 或 popup）
 const CLICK_BEHAVIOR_KEY = 'clickOpenTarget'; // 'sidepanel' | 'popup'
@@ -246,70 +42,9 @@ browserAPI.storage?.onChanged?.addListener((changes, area) => {
 });
 
 browserAPI.runtime.onMessage.addListener((request, sender, sendResponse) => {
-	if (request.action === 'permissions_get_sites') {
-		(async () => {
-			try {
-				sendResponse({
-					success: true,
-					defaultSites: DEFAULT_SITE_PATTERNS,
-					optionalSites: await getOptionalOrigins(),
-				});
-			} catch (error) {
-				sendResponse({
-					success: false,
-					error: error instanceof Error ? error.message : '获取授权站点失败',
-				});
-			}
-		})();
-		return true;
-	}
-
-	if (request.action === 'permissions_check_site') {
-		(async () => {
-			try {
-				sendResponse(await checkSiteAccess(request.url || request.origin || ''));
-			} catch (error) {
-				sendResponse({
-					success: false,
-					allowed: false,
-					error: error instanceof Error ? error.message : '站点权限检查失败',
-				});
-			}
-		})();
-		return true;
-	}
-
-	if (request.action === 'permissions_remove_site') {
-		(async () => {
-			try {
-				const origin = request.origin || request.url || '';
-				if (!origin) {
-					sendResponse({ success: false, error: 'URL 不能为空' });
-					return;
-				}
-				if (DEFAULT_SITE_PATTERNS.includes(origin)) {
-					sendResponse({ success: false, error: '默认站点权限不可移除' });
-					return;
-				}
-
-				const removed = await browserAPI.permissions.remove({ origins: [origin] });
-				sendResponse({ success: removed, removed, origin, error: removed ? null : `移除 ${origin} 权限失败` });
-			} catch (error) {
-				sendResponse({
-					success: false,
-					removed: false,
-					error: error instanceof Error ? error.message : '移除站点权限失败',
-				});
-			}
-		})();
-		return true;
-	}
-});
-
-browserAPI.runtime.onMessage.addListener((request, sender, sendResponse) => {
 	if (request.action === 'sendData') {
 		// 查询所有打开的标签页
-		browserAPI.tabs.query({ url: LINUX_DO_TAB_PATTERNS }, (tabs) => {
+		browserAPI.tabs.query({ url: '*://linux.do/*' }, (tabs) => {
 			tabs.forEach((tab) => {
 				if (tab.id) {
 					browserAPI.tabs.sendMessage(tab.id, {
@@ -340,192 +75,163 @@ browserAPI.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
 browserAPI.runtime.onMessage.addListener((request, sender, sendResponse) => {
 	if (request.type === 'webdav') {
-		(async () => {
-			// 这里仅检查权限并消费已授权结果，真正的申请动作必须在前台点击流程里完成
-			const access = await ensureSiteAccess(request.url || '');
-			if (!access.success) {
+		const { method, url, headers, data } = request;
+
+		fetch(url, {
+			method: method,
+			headers: headers,
+			body: data || undefined,
+		})
+			.then(async (response) => {
+				const text = await response.text();
 				sendResponse({
-					error: access.error,
-					needs_permission: true,
-					origin: access.origin,
+					status: response.status,
+					statusText: response.statusText,
+					data: text,
 				});
-				return;
-			}
-
-			const { method, url, headers, data } = request;
-			fetch(url, {
-				method,
-				headers,
-				body: data || undefined,
 			})
-				.then(async (response) => {
-					const text = await response.text();
-					sendResponse({
-						status: response.status,
-						statusText: response.statusText,
-						data: text,
-					});
-				})
-				.catch((error) => {
-					sendResponse({
-						error: error.message,
-					});
+			.catch((error) => {
+				sendResponse({
+					error: error.message,
 				});
-		})();
+			});
 
-		return true;
+		return true; // 保持消息通道打开
 	}
 });
 
 // AI API 代理请求监听器（绕过 CORS 限制）
 browserAPI.runtime.onMessage.addListener((request, sender, sendResponse) => {
 	if (request.action === 'ai_api_proxy') {
-		(async () => {
-			// 这里仅检查权限并消费已授权结果，真正的申请动作必须在前台点击流程里完成
-			const access = await ensureSiteAccess(request.url || '');
-			if (!access.success) {
-				sendMissingPermission(sendResponse, access);
-				return;
-			}
+		const { url, method = 'POST', headers = {}, body } = request;
 
-			const { url, method = 'POST', headers = {}, body } = request;
+		// 调试日志：请求信息
+		console.log('[AI API Proxy] 请求开始:', {
+			url,
+			method,
+			headers,
+			body,
+		});
 
-			console.log('[AI API Proxy] 请求开始:', {
-				url,
-				method,
-				headers,
-				body,
+		fetch(url, {
+			method,
+			headers,
+			body: body ? JSON.stringify(body) : undefined,
+		})
+			.then(async (response) => {
+				const contentType = response.headers.get('content-type');
+				let data;
+
+				// 调试日志：响应状态
+				console.log('[AI API Proxy] 响应状态:', {
+					status: response.status,
+					statusText: response.statusText,
+					contentType,
+					ok: response.ok,
+				});
+
+				if (contentType && contentType.includes('application/json')) {
+					data = await response.json();
+				} else {
+					data = await response.text();
+				}
+
+				// 调试日志：响应数据
+				console.log('[AI API Proxy] 响应数据:', data);
+
+				sendResponse({
+					success: response.ok,
+					status: response.status,
+					statusText: response.statusText,
+					data,
+				});
+			})
+			.catch((error) => {
+				// 调试日志：请求错误
+				console.error('[AI API Proxy] 请求错误:', error);
+				sendResponse({
+					success: false,
+					error: error.message,
+				});
 			});
 
-			fetch(url, {
-				method,
-				headers,
-				body: body ? JSON.stringify(body) : undefined,
-			})
-				.then(async (response) => {
-					const contentType = response.headers.get('content-type');
-					let data;
-
-					console.log('[AI API Proxy] 响应状态:', {
-						status: response.status,
-						statusText: response.statusText,
-						contentType,
-						ok: response.ok,
-					});
-
-					if (contentType && contentType.includes('application/json')) {
-						data = await response.json();
-					} else {
-						data = await response.text();
-					}
-
-					console.log('[AI API Proxy] 响应数据:', data);
-
-					sendResponse({
-						success: response.ok,
-						status: response.status,
-						statusText: response.statusText,
-						data,
-					});
-				})
-				.catch((error) => {
-					console.error('[AI API Proxy] 请求错误:', error);
-					sendResponse({
-						success: false,
-						error: error.message,
-					});
-				});
-		})();
-
-		return true;
+		return true; // 保持消息通道打开
 	}
 });
 
 // AI API 流式请求代理（用于流式响应）
 browserAPI.runtime.onMessage.addListener((request, sender, sendResponse) => {
 	if (request.action === 'ai_api_stream_proxy') {
-		(async () => {
-			// 这里仅检查权限并消费已授权结果，真正的申请动作必须在前台点击流程里完成
-			const access = await ensureSiteAccess(request.url || '');
-			if (!access.success) {
-				sendResponse({
-					started: false,
-					error: access.error,
-					needs_permission: true,
-					origin: access.origin,
-				});
-				return;
-			}
+		const { url, method = 'POST', headers = {}, body, tabId } = request;
 
-			const { url, method = 'POST', headers = {}, body, tabId } = request;
-			const targetTabId = tabId || sender.tab?.id;
-			sendResponse({ started: true });
+		// 获取发送者的 tab ID
+		const targetTabId = tabId || sender.tab?.id;
 
-			fetch(url, {
-				method,
-				headers,
-				body: body ? JSON.stringify(body) : undefined,
-			})
-				.then(async (response) => {
-					if (!response.ok) {
-						const errorData = await response.json().catch(() => ({ message: response.statusText }));
-						if (targetTabId) {
-							browserAPI.tabs.sendMessage(targetTabId, {
-								action: 'ai_stream_error',
-								error: errorData.error?.message || errorData.message || `HTTP error! status: ${response.status}`,
-							});
-						}
-						return;
-					}
-
-					const reader = response.body?.getReader();
-					if (!reader) {
-						if (targetTabId) {
-							browserAPI.tabs.sendMessage(targetTabId, {
-								action: 'ai_stream_error',
-								error: '无法获取响应流',
-							});
-						}
-						return;
-					}
-
-					const decoder = new TextDecoder();
-
-					const processStream = async (): Promise<void> => {
-						const { done, value } = await reader.read();
-
-						if (done) {
-							if (targetTabId) {
-								browserAPI.tabs.sendMessage(targetTabId, {
-									action: 'ai_stream_done',
-								});
-							}
-							return;
-						}
-
-						const chunk = decoder.decode(value, { stream: true });
-						if (targetTabId) {
-							browserAPI.tabs.sendMessage(targetTabId, {
-								action: 'ai_stream_chunk',
-								chunk,
-							});
-						}
-
-						return processStream();
-					};
-
-					processStream();
-				})
-				.catch((error) => {
+		fetch(url, {
+			method,
+			headers,
+			body: body ? JSON.stringify(body) : undefined,
+		})
+			.then(async (response) => {
+				if (!response.ok) {
+					const errorData = await response.json().catch(() => ({ message: response.statusText }));
 					if (targetTabId) {
 						browserAPI.tabs.sendMessage(targetTabId, {
 							action: 'ai_stream_error',
-							error: error.message || '网络错误',
+							error: errorData.error?.message || errorData.message || `HTTP error! status: ${response.status}`,
 						});
 					}
-				});
-		})();
+					return;
+				}
 
+				const reader = response.body?.getReader();
+				if (!reader) {
+					if (targetTabId) {
+						browserAPI.tabs.sendMessage(targetTabId, {
+							action: 'ai_stream_error',
+							error: '无法获取响应流',
+						});
+					}
+					return;
+				}
+
+				const decoder = new TextDecoder();
+
+				const processStream = async (): Promise<void> => {
+					const { done, value } = await reader.read();
+
+					if (done) {
+						if (targetTabId) {
+							browserAPI.tabs.sendMessage(targetTabId, {
+								action: 'ai_stream_done',
+							});
+						}
+						return;
+					}
+
+					const chunk = decoder.decode(value, { stream: true });
+					if (targetTabId) {
+						browserAPI.tabs.sendMessage(targetTabId, {
+							action: 'ai_stream_chunk',
+							chunk,
+						});
+					}
+
+					return processStream();
+				};
+
+				processStream();
+			})
+			.catch((error) => {
+				if (targetTabId) {
+					browserAPI.tabs.sendMessage(targetTabId, {
+						action: 'ai_stream_error',
+						error: error.message || '网络错误',
+					});
+				}
+			});
+
+		sendResponse({ started: true });
 		return true;
 	}
 });
@@ -536,14 +242,23 @@ browserAPI.runtime.onMessage.addListener((request, sender, sendResponse) => {
 		const { endpoint = '', options = {}, hostname } = request;
 
 		// 优先使用传递的 hostname，否则从调用页面的 URL 获取
-		let connectDomain = 'connect.linux.do';
-		if (hostname && isLinuxDoHostname(hostname)) {
-			connectDomain = hostname === 'linux.do' ? 'connect.linux.do' : `connect.${hostname}`;
+		let connectDomain = 'connect.linux.do'; // 默认值
+
+		if (hostname) {
+			// 如果前端传递了 hostname 参数，直接使用
+			connectDomain = `connect.${hostname}`;
 		} else if (sender.tab?.url) {
 			try {
 				const tabUrl = new URL(sender.tab.url);
-				if (tabUrl.protocol === 'https:' && isLinuxDoHostname(tabUrl.hostname)) {
-					connectDomain = tabUrl.hostname === 'linux.do' ? 'connect.linux.do' : `connect.${tabUrl.hostname}`;
+				// 根据 hostname 动态设置 connect 前缀
+				if (tabUrl.hostname === 'linux.do') {
+					connectDomain = 'connect.linux.do';
+				} else if (tabUrl.hostname.endsWith('.linux.do')) {
+					// 如果是子域名，可能需要对应的 connect 子域名
+					connectDomain = `connect.${tabUrl.hostname}`;
+				} else {
+					// 其他情况可以根据需要定制
+					connectDomain = `connect.${tabUrl.hostname}`;
 				}
 			} catch (error) {
 				console.warn('无法解析调用页面的 URL:', error);
@@ -551,6 +266,7 @@ browserAPI.runtime.onMessage.addListener((request, sender, sendResponse) => {
 		}
 
 		const connectUrl = `https://${connectDomain}${endpoint}`;
+
 		// 默认请求配置
 		const defaultOptions = {
 			method: 'GET',
@@ -601,39 +317,6 @@ browserAPI.runtime.onMessage.addListener((request, sender, sendResponse) => {
 				});
 			});
 
-		return true;
+		return true; // 保持消息通道打开
 	}
-});
-
-// 监听权限变化，当添加新站点权限时注入 content script
-// 注意：onAdded 在构建环境的 fake-browser 中未实现，需要 try-catch
-try {
-	if (browserAPI.permissions?.onAdded) {
-		browserAPI.permissions.onAdded.addListener(async (permissions) => {
-			if (permissions.origins && permissions.origins.length > 0) {
-				console.log('[动态注入] 检测到新站点权限:', permissions.origins);
-				await injectToAllAuthorizedTabs();
-			}
-		});
-	}
-} catch {
-	// 构建环境中 permissions.onAdded 可能未实现，忽略即可
-}
-
-// 监听标签页更新，当导航到已授权的站点时注入 content script
-browserAPI.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
-	// 页面开始加载时清理注入状态（刷新或导航到新页面）
-	if (changeInfo.status === 'loading') {
-		injectedTabs.delete(tabId);
-	}
-
-	// 页面加载完成时注入 content script
-	if (changeInfo.status === 'complete' && tab.url) {
-		await injectContentScript(tabId, tab.url);
-	}
-});
-
-// 监听标签页关闭，清理注入状态
-browserAPI.tabs.onRemoved.addListener((tabId) => {
-	injectedTabs.delete(tabId);
 });

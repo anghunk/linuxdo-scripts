@@ -2,10 +2,8 @@ import './app.css';
 import { createApp } from 'vue';
 import App from './App.vue';
 
-const linuxDoMatches = ['https://linux.do/*', 'https://*.linux.do/*'];
-
 export default defineContentScript({
-	matches: linuxDoMatches,
+	matches: ['https://linux.do/*', 'https://idcflare.com/*'],
 	cssInjectionMode: 'ui',
 
 	async main(ctx) {

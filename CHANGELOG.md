@@ -1,1 +1,1 @@
-- feat: 支持动态注入 content script 到新授权的域名 #321
+- fix: 修复一些已知问题

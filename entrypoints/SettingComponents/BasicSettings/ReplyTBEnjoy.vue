@@ -595,6 +595,15 @@ export default {
 						"<svg class='fa d-icon d-icon-far-face-smile svg-icon svg-string' xmlns='http://www.w3.org/2000/svg'><use href='#far-face-smile'></use></svg>";
 					editor.appendChild(emojiButton);
 					emojiButton.addEventListener('click', function () {
+						var previewWrapper = document.querySelector('.d-editor-preview-wrapper');
+						if (!previewWrapper) return;
+
+						// 移除已存在的表情选择器
+						if (document.body.contains(document.querySelector('.emojiPicker'))) {
+							document.querySelector('.emojiPicker').remove();
+							return;
+						}
+
 						var emojiPicker = document.createElement('div');
 						emojiPicker.className = 'emojiPicker';
 						var emojiSetHtml = emojiSet
@@ -604,19 +613,12 @@ export default {
 							)
 							.join('');
 						emojiPicker.innerHTML = emojiSetHtml;
-						emojiPicker.style.position = 'absolute';
 						emojiPicker.style.background = '#FFF';
 						emojiPicker.style.border = '1px solid #ddd';
 						emojiPicker.style.padding = '10px';
 						emojiPicker.style.height = document.querySelector('.d-editor-textarea-column').getBoundingClientRect().height + 'px';
-						if (document.body.contains(document.querySelector('.emojiPicker'))) {
-							document.querySelector('.emojiPicker').remove();
-						} else {
-							var previewWrapper = document.querySelector('.d-editor-preview-wrapper');
-							if (previewWrapper) {
-								previewWrapper.prepend(emojiPicker);
-							}
-						}
+						// 使用 prepend 放在 d-editor-preview-wrapper 容器的第一个位置
+						previewWrapper.prepend(emojiPicker);
 						emojiPicker.addEventListener('click', function (e) {
 							if (e.target.tagName === 'IMG') {
 								var textArea = document.querySelector('.d-editor-input');
