@@ -146,6 +146,8 @@
               <MenuViewOwnReply :sort="14" v-model="settingData.checked44" v-show="matchesSearch('查看话题内自己回复的楼层数')"/>
               <!-- 是否自动打开外链（请谨慎操作，避免打开恶意链接） -->
               <MenuAutoOpenLink :sort="15" v-model="settingData.checked58" v-show="matchesSearch('自动打开外链')"/>
+              <!-- 默认树形评论 -->
+              <MenuNestedComments :sort="16" v-model="settingData.checked58_nested" v-show="matchesSearch('默认树形评论')"/>
 
               <div class="group-line">编辑器设置</div>
               <!-- 编辑器切换 ja 字体 -->
@@ -303,6 +305,7 @@ import MenuAutoLoadTopic from "./SettingComponents/BasicSettings/MenuAutoLoadTop
 import MenuViewHistoryRead from "./SettingComponents/BasicSettings/MenuViewHistoryRead.vue";
 import MenuObsidianCallouts from "./SettingComponents/BasicSettings/MenuObsidianCallouts.vue";
 import MenuAutoOpenLink from "./SettingComponents/BasicSettings/MenuAutoOpenLink.vue";
+import MenuNestedComments from "./SettingComponents/BasicSettings/MenuNestedComments.vue";
 
 // 自定义文字
 import MenuOtherCss from "./SettingComponents/CustomText/MenuOtherCss.vue";
@@ -441,6 +444,7 @@ export default {
     ViewHistoryList,
     MenuObsidianCallouts,
     MenuAutoOpenLink,
+    MenuNestedComments,
   },
   data() {
     return {
@@ -527,6 +531,7 @@ export default {
         checked55: false,
         checked56: false,
         checked57: false,
+        checked58_nested: false,
         removePostavatarData: {
           enable: false,
           showAuthor: false,
