@@ -527,6 +527,7 @@ export default {
         checked55: false,
         checked56: false,
         checked57: false,
+        checked58: false,
         removePostavatarData: {
           enable: false,
           showAuthor: false,

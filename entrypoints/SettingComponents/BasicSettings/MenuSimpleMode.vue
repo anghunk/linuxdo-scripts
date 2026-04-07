@@ -13,10 +13,8 @@ export default {
   created() {
     if (this.modelValue) {
       $('head').append(`<style>
-section.post-menu-area{position:absolute!important;bottom:-30px;right:0;transition:all .1s linear;opacity:0;visibility:hidden;transform:translateY(10px)}
 .topic-post .avatar{width:30px!important;height:30px!important}
 .topic-avatar .avatar-flair.rounded{display:none}
-.topic-post:hover section.post-menu-area{opacity:1;visibility:inherit;transform:translateY(0)}
 .topic-avatar{width:auto!important}
 .names .user-title{display:none}
 .topic-meta-data .user-status-message-wrap{display:none}
