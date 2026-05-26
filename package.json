@@ -19,6 +19,7 @@
   },
   "dependencies": {
     "@arco-themes/vue-indigo-sky": "^0.0.1",
+    "dompurify": "^3.4.5",
     "html2canvas": "^1.4.1",
     "jquery": "^3.7.1",
     "marked": "^14.1.1",

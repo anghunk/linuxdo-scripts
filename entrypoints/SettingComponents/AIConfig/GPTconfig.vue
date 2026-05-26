@@ -156,6 +156,7 @@
 
 <script>
 import $ from 'jquery';
+import DOMPurify from 'dompurify';
 import { marked } from 'marked';
 import storageCompat, { getSafeSettings } from '../../utilities/storageCompat.js';
 import dbStorage from '../../utilities/indexedDBStorage.js';
@@ -208,6 +209,10 @@ export default {
 		},
 	},
 	methods: {
+		renderSafeMarkdown(markdown) {
+			const html = marked.parse(markdown || '');
+			return DOMPurify.sanitize(html);
+		},
 		handleKeyDown(e) {
 			if (e.altKey && e.key === '-') {
 				e.preventDefault();
@@ -528,7 +533,7 @@ export default {
 								if (cachedContent) {
 									$('.post-stream').before(
 										`<div class="gpt-summary-wrap">
-<div class="gpt-summary">${marked.parse(cachedContent)}</div>
+<div class="gpt-summary">${this.renderSafeMarkdown(cachedContent)}</div>
 </div>`,
 									);
 								}
@@ -659,7 +664,7 @@ export default {
 									if (jsonData.choices?.[0]?.delta?.content) {
 										const content = jsonData.choices[0].delta.content;
 										fullContent += content;
-										$('.gpt-summary').html(marked.parse(fullContent));
+										$('.gpt-summary').html(this.renderSafeMarkdown(fullContent));
 									}
 								} catch (error) {
 									// 忽略解析错误
@@ -677,7 +682,7 @@ export default {
 						resolve();
 					} else if (message.action === 'ai_stream_error') {
 						browserAPI.runtime.onMessage.removeListener(streamListener);
-						$('.gpt-summary').html(`生成失败：${message.error}`);
+						$('.gpt-summary').text(`生成失败：${message.error}`);
 						reject(new Error(message.error));
 					}
 				};
@@ -697,14 +702,14 @@ export default {
 					(response) => {
 						if (browserAPI.runtime.lastError) {
 							browserAPI.runtime.onMessage.removeListener(streamListener);
-							$('.gpt-summary').html(`生成失败：${browserAPI.runtime.lastError.message}`);
+							$('.gpt-summary').text(`生成失败：${browserAPI.runtime.lastError.message}`);
 							reject(new Error(browserAPI.runtime.lastError.message));
 							return;
 						}
 
 						if (!response?.started) {
 							browserAPI.runtime.onMessage.removeListener(streamListener);
-							$('.gpt-summary').html(`生成失败：无法启动流式请求`);
+							$('.gpt-summary').text(`生成失败：无法启动流式请求`);
 							reject(new Error('无法启动流式请求'));
 						}
 					},
@@ -715,7 +720,7 @@ export default {
 		// 生成 AI 回复（通过 background script 绕过 CORS）
 		async setAIRelpy() {
 			$('.aireply-popup').show();
-			$('.aireply-popup-text').html('AI 推荐回复正在生成中，请稍后。。。');
+			$('.aireply-popup-text').text('AI 推荐回复正在生成中，请稍后。。。');
 			const settingsData = getSafeSettings();
 			const config = settingsData ? settingsData.gptdata : this.localChecked;
 			const browserAPI = typeof browser !== 'undefined' ? browser : chrome;
@@ -765,7 +770,7 @@ ${str}`;
 					},
 					(response) => {
 						if (browserAPI.runtime.lastError) {
-							$('.aireply-popup-text').html(`生成失败：${browserAPI.runtime.lastError.message}`);
+							$('.aireply-popup-text').text(`生成失败：${browserAPI.runtime.lastError.message}`);
 							reject(new Error(browserAPI.runtime.lastError.message));
 							return;
 						}
@@ -777,7 +782,7 @@ ${str}`;
 							resolve();
 						} else {
 							const errorMsg = response.data?.error?.message || response.error || '未知错误';
-							$('.aireply-popup-text').html(`生成失败：${errorMsg}`);
+							$('.aireply-popup-text').text(`生成失败：${errorMsg}`);
 							reject(new Error(errorMsg));
 						}
 					},
@@ -864,7 +869,7 @@ ${str}`;
 
 		// 推荐回复弹窗
 		AIReplyPopup(text) {
-			$('.aireply-popup-text').html(text);
+			$('.aireply-popup-text').text(text);
 		},
 		// AI 根据新建话题内容生成标题（通过 background script 绕过 CORS）
 		async getCreateNewTopicTitle() {
@@ -958,7 +963,7 @@ ${topic_contentdata}`;
 						if (cachedContent) {
 							$('.post-stream').before(
 								`<div class="gpt-summary-wrap">
-<div class="gpt-summary">${marked.parse(cachedContent)}</div>
+<div class="gpt-summary">${this.renderSafeMarkdown(cachedContent)}</div>
 </div>`,
 							);
 						} else if (!this.localChecked.btn) {
