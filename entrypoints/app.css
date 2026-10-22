@@ -523,7 +523,8 @@
 
 .topicpreview-btn,
 .donottopic-btn,
-.removedonottopic-btn {
+.removedonottopic-btn,
+.titlekeyword-btn {
   height: 30px !important;
   padding: 4px 12px !important;
   font-size: 14px !important;
@@ -549,7 +550,8 @@
 
 .topic-list-item:hover .topicpreview-btn,
 .topic-list-item:hover .donottopic-btn,
-.topic-list-item:hover .removedonottopic-btn {
+.topic-list-item:hover .removedonottopic-btn,
+.topic-list-item:hover .titlekeyword-btn {
   opacity: 1 !important;
 }
 

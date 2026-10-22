@@ -14,6 +14,7 @@
 
 <script>
 import $ from "jquery";
+import { isUserPage } from "../../utilities/url";
 export default {
   props: {
     value: {
@@ -78,14 +79,16 @@ export default {
     },
     // 屏蔽指定分类、指定时间
     GetTimestamp() {
+      // 用户主页列的是该用户自己的话题，不屏蔽
       if (
+        !isUserPage() &&
         !$(".nav-pills > li.nav-item_posted").hasClass("active") &&
         !$(".nav-pills > li.nav-item_bookmarks").hasClass("active")
       ) {
         if (this.localChecked.cate == "") {
           $(".topic-list .age").each((index, element) => {
             const str = $(element).attr("title");
-            const match = str.match(/创建日期：([\s\S]*?)最新：/);
+            const match = str && str.match(/创建日期：([\s\S]*?)最新：/);
             if (match && match[1]) {
               const creationDate = match[1].trim();
               const timestamp = this.convertToTimestamp(creationDate);
@@ -106,7 +109,7 @@ export default {
                 .find(".age")
                 .each((index, element) => {
                   const str = $(element).attr("title");
-                  const match = str.match(/创建日期：([\s\S]*?)最新：/);
+                  const match = str && str.match(/创建日期：([\s\S]*?)最新：/);
                   if (match && match[1]) {
                     const creationDate = match[1].trim();
                     const timestamp = this.convertToTimestamp(creationDate);
@@ -124,12 +127,9 @@ export default {
     startPolling() {
       if (this.shieldPostsIntervalId || !this.localChecked.value1) return;
 
-      let pollinglength1 = 0;
+      // 不按行数变化判断：从用户主页（不屏蔽）切回首页时，两边列表行数可能相同，会漏掉屏蔽
       this.shieldPostsIntervalId = setInterval(() => {
-        if (pollinglength1 != $(".topic-list-body tr").length) {
-          pollinglength1 = $(".topic-list-body tr").length;
-          this.GetTimestamp();
-        }
+        this.GetTimestamp();
       }, 1000);
     },
     stopPolling() {

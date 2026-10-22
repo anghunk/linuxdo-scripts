@@ -1,14 +1,14 @@
 <template>
   <div class="item">
     <div class="tit">
-      {{ sort }}. 关键词屏蔽功能（使用英文，分隔）屏蔽包含关键字的话题标题、回复
+      {{ sort }}. 关键词屏蔽功能（中英文逗号均可分隔）屏蔽标题包含关键字的话题
     </div>
   </div>
   <textarea v-model="textarea" @input="handleChange"> </textarea>
 </template>
 
 <script>
-import $ from "jquery";
+import { parseKeywords, removeTopicsByKeywords } from "../../utilities/titleKeywords.js";
 export default {
   props: {
     value: {
@@ -49,54 +49,24 @@ export default {
       if (!this.textarea) return;
 
       // 将用户输入的关键字分割为数组，并去除空格和空值
-      const keywords = this.textarea
-        .split(",")
-        .map((keyword) => keyword.trim())
-        .filter(Boolean);
+      const keywords = parseKeywords(this.textarea);
       if (keywords.length === 0) return;
 
       // 安全检查 jQuery 的使用，防止元素不可用时出错
       try {
         // 检查话题标题
-        $(".topic-list .main-link .raw-topic-link>*")
-          .filter((index, element) => {
-            const text = $(element).text().toLowerCase();
-            return keywords.some((keyword) => text.includes(keyword.toLowerCase()));
-          })
-          .parents("tr.topic-list-item")
-          .remove();
-
-        // 检查评论回复
-        $(".topic-body .cooked")
-          .filter((index, element) => {
-            const text = $(element).text().toLowerCase();
-            return keywords.some((keyword) => text.includes(keyword.toLowerCase()));
-          })
-          .parents(".topic-post")
-          .remove();
+        removeTopicsByKeywords(keywords);
       } catch (error) {
         console.error("init 方法出错：", error);
       }
     },
     startPolling() {
       if (this.pollingInterval || !this.textarea) return;
-      
-      let previousTopicListLength = 0;
-      let previousPostStreamLength = 0;
 
+      // 不按行数变化判断：从用户主页（不屏蔽）切回首页时，两边列表行数可能相同，会漏掉屏蔽
       this.pollingInterval = setInterval(() => {
         try {
-          const currentTopicListLength = $(".topic-list-body tr").length || 0;
-          const currentPostStreamLength = $(".post-stream .topic-post").length || 0;
-
-          if (previousTopicListLength !== currentTopicListLength) {
-            previousTopicListLength = currentTopicListLength;
-            this.init();
-          }
-          if (previousPostStreamLength !== currentPostStreamLength) {
-            previousPostStreamLength = currentPostStreamLength;
-            this.init();
-          }
+          this.init();
         } catch (error) {
           console.error("轮询逻辑出错：", error);
         }

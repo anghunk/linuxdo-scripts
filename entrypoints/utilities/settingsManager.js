@@ -117,6 +117,22 @@ class SettingsManager {
 		}
 	}
 
+	// 基於數據庫中的最新值修改單個設置項（讀改寫在同一事務內完成）
+	// updater 接收當前值並返回新值
+	async modifySetting(key, updater) {
+		try {
+			const settings = await dbStorage.modifySettings((current) => ({
+				...(current || {}),
+				[key]: updater(current ? current[key] : undefined),
+			}));
+			this.cache = settings;
+			return { success: true, value: settings[key] };
+		} catch (error) {
+			console.error('修改設置項失敗：', error);
+			return { success: false };
+		}
+	}
+
 	// 清除緩存
 	clearCache() {
 		this.cache = null;

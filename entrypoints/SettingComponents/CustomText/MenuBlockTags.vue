@@ -9,6 +9,7 @@
 
 <script>
 import $ from "jquery";
+import { isUserPage } from "../../utilities/url";
 export default {
   props: {
     value: {
@@ -46,7 +47,8 @@ export default {
       this.$emit("update:value", this.textarea);
     },
     init() {
-      if (!this.textarea) return;
+      // 用户主页列的是该用户自己的话题，不屏蔽
+      if (!this.textarea || isUserPage()) return;
 
       // 将用户输入的关键字分割为数组，并去除空格和空值
       const keywords = this.textarea
@@ -71,23 +73,11 @@ export default {
     },
     startPolling() {
       if (this.pollingInterval || !this.textarea) return;
-      
-      let previousTopicListLength = 0;
-      let previousPostStreamLength = 0;
 
+      // 不按行数变化判断：从用户主页（不屏蔽）切回首页时，两边列表行数可能相同，会漏掉屏蔽
       this.pollingInterval = setInterval(() => {
         try {
-          const currentTopicListLength = $(".topic-list-body tr").length || 0;
-          const currentPostStreamLength = $(".post-stream .topic-post").length || 0;
-
-          if (previousTopicListLength !== currentTopicListLength) {
-            previousTopicListLength = currentTopicListLength;
-            this.init();
-          }
-          if (previousPostStreamLength !== currentPostStreamLength) {
-            previousPostStreamLength = currentPostStreamLength;
-            this.init();
-          }
+          this.init();
         } catch (error) {
           console.error("轮询逻辑出错：", error);
         }

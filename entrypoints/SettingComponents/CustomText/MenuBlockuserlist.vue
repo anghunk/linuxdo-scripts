@@ -8,6 +8,7 @@
 
 <script>
 import $ from "jquery";
+import { isUserPage } from "../../utilities/url";
 export default {
   props: {
     value: {
@@ -48,13 +49,16 @@ export default {
     init() {
       this.list = this.textarea.split(",") || [];
       var self = this; // 保存外部上下文
-      $(".topic-list .topic-list-data.posters>a:nth-child(1)")
-        .filter((index, element) => {
-          var user = $(element).attr("data-user-card");
-          return self.list.indexOf(user) !== -1;
-        })
-        .parents("tr.topic-list-item")
-        .remove();
+      // 用户主页列的是该用户自己的话题，不屏蔽
+      if (!isUserPage()) {
+        $(".topic-list .topic-list-data.posters>a:nth-child(1)")
+          .filter((index, element) => {
+            var user = $(element).attr("data-user-card");
+            return self.list.indexOf(user) !== -1;
+          })
+          .parents("tr.topic-list-item")
+          .remove();
+      }
 
       $(".topic-post .full-name a")
         .filter((index, element) => {
@@ -67,17 +71,9 @@ export default {
     startPolling() {
       if (this.blockTimer || !this.textarea) return;
       
-      let pollinglength1 = 0;
-      let pollinglength2 = 0;
+      // 不按行数变化判断：从用户主页（不屏蔽）切回首页时，两边列表行数可能相同，会漏掉屏蔽
       this.blockTimer = setInterval(() => {
-        if (pollinglength1 != $(".topic-list-body tr").length) {
-          pollinglength1 = $(".topic-list-body tr").length;
-          this.init();
-        }
-        if (pollinglength2 != $(".post-stream .topic-post").length) {
-          pollinglength2 = $(".post-stream .topic-post").length;
-          this.init();
-        }
+        this.init();
       }, 1000);
     },
     stopPolling() {

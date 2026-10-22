@@ -9,3 +9,11 @@ export function isQueryParamEqual(key: string, value: string, url?: string) {
     const params = new URLSearchParams(url ?? window.location.search);
     return params.get(key) === value;
 }
+
+/**
+ * 是否为用户主页（/u/用户名/...）
+ * @returns {boolean}
+ */
+export function isUserPage() {
+    return /^\/u\//.test(window.location.pathname);
+}

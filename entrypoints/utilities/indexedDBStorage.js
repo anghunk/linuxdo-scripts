@@ -101,6 +101,34 @@ class IndexedDBStorage {
 		});
 	}
 
+	// 在同一個 readwrite 事務裡讀取、修改、寫回設置，多個標籤頁同時修改也不會互相覆蓋
+	async modifySettings(modifier, customKey = null) {
+		const db = await this.openDBWithTimeout();
+		const keyToUse = customKey || this.settingsKey;
+		return new Promise((resolve, reject) => {
+			try {
+				const tx = db.transaction(this.storeName, 'readwrite');
+				const store = tx.objectStore(this.storeName);
+				let updated;
+				const getReq = store.get(keyToUse);
+				getReq.onsuccess = () => {
+					try {
+						updated = this.sanitizeForStorage(modifier(getReq.result ? getReq.result.value : null));
+						store.put({ key: keyToUse, value: updated, timestamp: Date.now() });
+					} catch (error) {
+						tx.abort();
+						reject(error);
+					}
+				};
+				tx.oncomplete = () => resolve(updated);
+				tx.onerror = () => reject(tx.error);
+				tx.onabort = () => reject(tx.error || new Error('IndexedDB transaction aborted'));
+			} catch (error) {
+				reject(error);
+			}
+		});
+	}
+
 	// 4. 刪除設置數據
 	async removeSettings() {
 		const db = await this.openDBWithTimeout();
