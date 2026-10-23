@@ -1,4 +1,5 @@
 // IndexedDB 存儲工具類
+// 持久化修复：等待事务提交，读取失败不再回退为缺失记录，迁移时保留最新值。
 class IndexedDBStorage {
 	constructor(dbName = 'LinuxDoScriptsDB', version = 1) {
 		this.dbName = dbName;
@@ -11,12 +12,13 @@ class IndexedDBStorage {
 
 	// 帶超時的 Promise 包裝器
 	withTimeout(promise, timeoutMs, errorMessage = 'Operation timed out') {
+		let timer;
 		return Promise.race([
 			promise,
-			new Promise((_, reject) =>
-				setTimeout(() => reject(new Error(errorMessage)), timeoutMs)
-			),
-		]);
+			new Promise((_, reject) => {
+				timer = setTimeout(() => reject(new Error(errorMessage)), timeoutMs);
+			}),
+		]).finally(() => clearTimeout(timer));
 	}
 
 	// 檢查 IndexedDB 是否可用
@@ -39,10 +41,24 @@ class IndexedDBStorage {
 
 			try {
 				const req = indexedDB.open(this.dbName, this.version);
-				
-				req.onerror = () => reject(req.error);
-				req.onsuccess = () => resolve(req.result);
-				req.onblocked = () => reject(new Error('IndexedDB is blocked'));
+				let failed = false;
+				req.onerror = () => {
+					failed = true;
+					reject(req.error);
+				};
+				req.onsuccess = () => {
+					const db = req.result;
+					if (failed) {
+						db.close();
+						return;
+					}
+					db.onversionchange = () => db.close();
+					resolve(db);
+				};
+				req.onblocked = () => {
+					failed = true;
+					reject(new Error('IndexedDB is blocked'));
+				};
 
 				// 第一次運行會自動執行
 				req.onupgradeneeded = () => {
@@ -59,35 +75,21 @@ class IndexedDBStorage {
 
 	// 帶超時保護的 openDB
 	async openDBWithTimeout() {
-		return this.withTimeout(
-			this.openDB(),
-			this.dbTimeout,
-			'IndexedDB open timeout'
-		);
+		const opening = this.openDB();
+		try {
+			return await this.withTimeout(opening, this.dbTimeout, 'IndexedDB open timeout');
+		} catch (error) {
+			// 超时后打开请求仍可能成功，关闭迟到的连接以免阻塞升级。
+			opening.then((db) => db.close(), () => {});
+			throw error;
+		}
 	}
 
 	// 2. 存儲設置數據
 	async saveSettings(settingsObj, customKey = null) {
-		const db = await this.openDBWithTimeout();
 		const keyToUse = customKey || this.settingsKey;
-		return new Promise((resolve, reject) => {
-			try {
-				// 深度克隆並清理不可序列化的屬性
-				const cleanedSettings = this.sanitizeForStorage(settingsObj);
-
-				const tx = db.transaction(this.storeName, 'readwrite');
-				const store = tx.objectStore(this.storeName);
-				const req = store.put({
-					key: keyToUse,
-					value: cleanedSettings,
-					timestamp: Date.now(),
-				});
-				req.onsuccess = () => resolve(req.result);
-				req.onerror = () => reject(req.error);
-			} catch (error) {
-				reject(error);
-			}
-		});
+		await this.modifySettings(() => settingsObj, keyToUse);
+		return keyToUse;
 	}
 
 	// 3. 讀取設置數據
@@ -95,10 +97,16 @@ class IndexedDBStorage {
 		const db = await this.openDBWithTimeout();
 		const keyToUse = customKey || this.settingsKey;
 		return new Promise((resolve, reject) => {
-			const req = db.transaction(this.storeName).objectStore(this.storeName).get(keyToUse);
-			req.onsuccess = () => resolve(req.result ? req.result.value : null);
-			req.onerror = () => reject(req.error);
-		});
+			try {
+				const tx = db.transaction(this.storeName);
+				const req = tx.objectStore(this.storeName).get(keyToUse);
+				tx.oncomplete = () => resolve(req.result ? req.result.value : null);
+				tx.onerror = (event) => reject(event.target?.error || tx.error || new Error('IndexedDB transaction failed'));
+				tx.onabort = () => reject(tx.error || new Error('IndexedDB transaction aborted'));
+			} catch (error) {
+				reject(error);
+			}
+		}).finally(() => db.close());
 	}
 
 	// 在同一個 readwrite 事務裡讀取、修改、寫回設置，多個標籤頁同時修改也不會互相覆蓋
@@ -121,23 +129,28 @@ class IndexedDBStorage {
 					}
 				};
 				tx.oncomplete = () => resolve(updated);
-				tx.onerror = () => reject(tx.error);
+				tx.onerror = (event) => reject(event.target?.error || tx.error || new Error('IndexedDB transaction failed'));
 				tx.onabort = () => reject(tx.error || new Error('IndexedDB transaction aborted'));
 			} catch (error) {
 				reject(error);
 			}
-		});
+		}).finally(() => db.close());
 	}
 
 	// 4. 刪除設置數據
 	async removeSettings() {
 		const db = await this.openDBWithTimeout();
 		return new Promise((resolve, reject) => {
-			const tx = db.transaction(this.storeName, 'readwrite');
-			const req = tx.objectStore(this.storeName).delete(this.settingsKey);
-			req.onsuccess = () => resolve(req.result);
-			req.onerror = () => reject(req.error);
-		});
+			try {
+				const tx = db.transaction(this.storeName, 'readwrite');
+				tx.objectStore(this.storeName).delete(this.settingsKey);
+				tx.oncomplete = () => resolve();
+				tx.onerror = (event) => reject(event.target?.error || tx.error || new Error('IndexedDB transaction failed'));
+				tx.onabort = () => reject(tx.error || new Error('IndexedDB transaction aborted'));
+			} catch (error) {
+				reject(error);
+			}
+		}).finally(() => db.close());
 	}
 
 	// 5. 檢查是否存在設置數據
@@ -173,40 +186,29 @@ class IndexedDBStorage {
 			if (dataToMigrate) {
 				// 清理數據並保存到 IndexedDB
 				const cleanedData = this.sanitizeForStorage(dataToMigrate);
-				await this.saveSettings(cleanedData);
+				// 其他页面可能已完成迁移或保存，不能用旧数据覆盖新记录。
+				const settings = await this.modifySettings((current) => current ?? cleanedData);
 
 				// 清理 localStorage 中的舊數據
 				localStorage.removeItem(oldKey);
 				localStorage.removeItem(newKey);
 
 				console.log('數據已成功從 localStorage 遷移到 IndexedDB');
-				return cleanedData;
+				return settings;
 			}
 
 			return null;
 		} catch (error) {
 			console.error('數據遷移失敗：', error);
-			return null;
+			throw error;
 		}
 	}
 
 	// 7. 獲取設置數據（包含遷移邏輯）
 	async getSettingsWithMigration() {
-		try {
-			// 首先嘗試從 IndexedDB 獲取
-			let settings = await this.getSettings();
-
-			// 如果 IndexedDB 中沒有數據，嘗試從 localStorage 遷移
-			if (!settings) {
-				settings = await this.migrateFromLocalStorage();
-			}
-
-			return settings;
-		} catch (error) {
-			console.error('獲取設置數據時出錯（嘗試回退到 localStorage）：', error);
-			// 回退到 localStorage
-			return this.fallbackToLocalStorage();
-		}
+		// 只有成功读取且记录不存在时才能迁移；读取失败必须交给调用方处理。
+		const settings = await this.getSettings();
+		return settings === null ? this.migrateFromLocalStorage() : settings;
 	}
 
 	// 回退到 localStorage（當 IndexedDB 不可用時）
@@ -414,3 +416,4 @@ class IndexedDBStorage {
 const dbStorage = new IndexedDBStorage();
 
 export default dbStorage;
+export { IndexedDBStorage };

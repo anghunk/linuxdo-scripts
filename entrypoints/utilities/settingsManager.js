@@ -1,20 +1,18 @@
 // 全局設置管理器
+// 持久化修复：初始化和局部修改使用事务内的最新记录，读取异常向上传递。
 import dbStorage from './indexedDBStorage.js';
 import StorageDebugger from './storageDebugger.js';
 
 class SettingsManager {
-	constructor() {
+	constructor(storage = dbStorage) {
+		this.storage = storage;
 		this.cache = null;
 		this.isLoading = false;
 		this.loadPromise = null;
 	}
 
-	// 獲取設置數據（帶緩存）
+	// 合并同一次加载中的请求，后续调用重新读取以获取其他页面的修改。
 	async getSettings() {
-		if (this.cache) {
-			return this.cache;
-		}
-
 		if (this.isLoading) {
 			return this.loadPromise;
 		}
@@ -33,12 +31,15 @@ class SettingsManager {
 
 	// 私有方法：加載設置
 	async _loadSettings() {
-		try {
-			return await dbStorage.getSettingsWithMigration();
-		} catch (error) {
-			console.error('加載設置失敗：', error);
-			return null;
-		}
+		return await this.storage.getSettingsWithMigration();
+	}
+
+	async initializeSettings(defaults) {
+		// 读取或迁移失败时立即停止，不能把异常当成首次安装。
+		await this.storage.getSettingsWithMigration();
+		const settings = await this.storage.modifySettings((current) => this.deepMerge(defaults, current || {}));
+		this.cache = settings;
+		return settings;
 	}
 
 	// 保存設置數據
@@ -52,14 +53,14 @@ class SettingsManager {
 				}
 			}
 
-			await dbStorage.saveSettings(settingsData);
+			await this.storage.saveSettings(settingsData);
 			this.cache = settingsData; // 更新緩存
 			return true;
 		} catch (error) {
 			console.error('保存設置失敗：', error);
 
 			// 如果是 DataCloneError，嘗試生成調試報告
-			if (error.name === 'DataCloneError') {
+			if (error?.name === 'DataCloneError') {
 				console.group('🔍 DataCloneError 調試信息');
 				StorageDebugger.generateReport(settingsData, 'settingsData');
 
@@ -68,7 +69,7 @@ class SettingsManager {
 				if (fixResult.success) {
 					console.log('🔧 嘗試使用修復後的數據重新保存...');
 					try {
-						await dbStorage.saveSettings(fixResult.data);
+						await this.storage.saveSettings(fixResult.data);
 						this.cache = fixResult.data;
 						console.log('✅ 使用修復後的數據保存成功');
 						console.groupEnd();
@@ -87,9 +88,10 @@ class SettingsManager {
 	// 更新部分設置
 	async updateSettings(partialSettings) {
 		try {
-			const currentSettings = (await this.getSettings()) || {};
-			const updatedSettings = this.deepMerge(currentSettings, partialSettings);
-			return await this.saveSettings(updatedSettings);
+			// 在事务中合并最新记录，不能从本页面的缓存生成整份快照。
+			const settings = await this.storage.modifySettings((current) => this.deepMerge(current || {}, partialSettings));
+			this.cache = settings;
+			return true;
 		} catch (error) {
 			console.error('更新設置失敗：', error);
 			return false;
@@ -121,7 +123,7 @@ class SettingsManager {
 	// updater 接收當前值並返回新值
 	async modifySetting(key, updater) {
 		try {
-			const settings = await dbStorage.modifySettings((current) => ({
+			const settings = await this.storage.modifySettings((current) => ({
 				...(current || {}),
 				[key]: updater(current ? current[key] : undefined),
 			}));
@@ -141,7 +143,7 @@ class SettingsManager {
 	// 刪除所有設置
 	async clearSettings() {
 		try {
-			await dbStorage.removeSettings();
+			await this.storage.removeSettings();
 			this.cache = null;
 			return true;
 		} catch (error) {
@@ -155,7 +157,8 @@ class SettingsManager {
 		const result = { ...target };
 
 		for (const key in source) {
-			if (source[key] instanceof Object && !Array.isArray(source[key]) && key in result) {
+			if (source[key] !== null && typeof source[key] === 'object' && !Array.isArray(source[key]) &&
+				result[key] !== null && typeof result[key] === 'object' && !Array.isArray(result[key])) {
 				result[key] = this.deepMerge(result[key], source[key]);
 			} else {
 				result[key] = source[key];
@@ -219,4 +222,4 @@ const compatStorage = {
 };
 
 export default settingsManager;
-export { compatStorage };
+export { SettingsManager, compatStorage };
