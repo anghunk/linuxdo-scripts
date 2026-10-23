@@ -60,7 +60,7 @@ class SettingsManager {
 			console.error('保存設置失敗：', error);
 
 			// 如果是 DataCloneError，嘗試生成調試報告
-			if (error.name === 'DataCloneError') {
+			if (error?.name === 'DataCloneError') {
 				console.group('🔍 DataCloneError 調試信息');
 				StorageDebugger.generateReport(settingsData, 'settingsData');
 

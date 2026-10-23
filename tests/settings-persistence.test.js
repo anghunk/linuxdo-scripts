@@ -10,7 +10,9 @@ delete globalThis.window;
 
 let storage;
 
-beforeEach(() => {
+beforeEach((t) => {
+	t.mock.method(console, 'error', () => {});
+	t.mock.method(console, 'log', () => {});
 	globalThis.indexedDB = new IDBFactory();
 	const values = new Map();
 	globalThis.localStorage = {
@@ -141,6 +143,38 @@ test('写请求成功后事务中止，不能返回保存成功', async () => {
 	await assert.rejects(storage.saveSettings({ checked1: false }), /aborted/);
 	assert.deepEqual(await new IndexedDBStorage().getSettings(), { checked1: true });
 });
+
+test('异步请求失败保留具体错误，管理器返回失败且原配置回滚', async () => {
+	const original = { checked1: true, testId: 2 };
+	await storage.saveSettings(original);
+	// 唯一索引仅用于测试中触发真实的异步请求错误，不改变生产数据库结构。
+	storage.version = 2;
+	await new Promise((resolve, reject) => {
+		const request = indexedDB.open(storage.dbName, storage.version);
+		request.onupgradeneeded = () => {
+			const store = request.transaction.objectStore(storage.storeName);
+			store.createIndex('test_unique', 'value.testId', { unique: true });
+			store.put({ key: 'conflict', value: { testId: 1 } });
+		};
+		request.onerror = () => reject(request.error);
+		request.onsuccess = () => { request.result.close(); resolve(); };
+	});
+	await assert.rejects(storage.saveSettings({ checked1: false, testId: 1 }), { name: 'ConstraintError' });
+	assert.deepEqual(await storage.getSettings(), original);
+	const manager = new SettingsManager(storage);
+	await manager.getSettings();
+	assert.equal(await manager.saveSettings({ checked1: false, testId: 1 }), false);
+	assert.deepEqual(manager.cache, original);
+	assert.deepEqual(await storage.getSettings(), original);
+});
+
+for (const error of [null, undefined]) {
+	test(`保存收到 ${error} 拒绝原因仍返回失败，不产生二次异常`, async () => {
+		const manager = new SettingsManager({ saveSettings: async () => { throw error; } });
+		assert.equal(await manager.saveSettings({ checked1: true }), false);
+		assert.equal(manager.cache, null);
+	});
+}
 
 test('保存与删除只在事务完成后返回，并关闭连接', async () => {
 	const originalOpen = storage.openDBWithTimeout.bind(storage);

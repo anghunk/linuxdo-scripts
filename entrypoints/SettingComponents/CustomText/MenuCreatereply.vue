@@ -50,21 +50,18 @@ export default {
 			this.$emit('update:value', this.textarea);
 		},
 		async init() {
-			if (!this.textarea) {
-				return false;
-			}
 			try {
 				const settings = await settingsManager.getSettings();
 				const quick = settings && settings.QuickReply ? settings.QuickReply : '';
-				if (quick) {
-					this.textarea = quick;
-					this.$emit('update:value', this.textarea);
-				}
+				// 按钮使用已保存的配置，定时刷新不能覆盖面板中未保存的草稿。
+				this.list = quick ? quick.split(/\r?\n/) : [];
 				console.log('自定义快捷回复', this.isDropdown);
 				this.isDropdown = !!(settings && settings.QuickReplyisDropdown);
-			} catch (e) {}
+			} catch (e) {
+				return;
+			}
 
-			this.list = this.textarea ? this.textarea.split(/\r?\n/) : [];
+			if (!this.list.length) return;
 
 			if ($('.createreply').length < 1) {
 				if (this.isDropdown) {

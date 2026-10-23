@@ -1,5 +1,5 @@
 import { test as base, expect, chromium } from '@playwright/test';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -21,7 +21,7 @@ const test = base.extend({
 			await context.route('**/*', (route) => route.fulfill({
 				contentType: route.request().isNavigationRequest() ? 'text/html' : 'application/json',
 				body: route.request().isNavigationRequest()
-					? '<!doctype html><html><head><title>Settings test</title></head><body><div id="main-outlet"></div></body></html>'
+					? '<!doctype html><html><head><title>Settings test</title></head><body><div id="main-outlet"></div><div class="timeline-container"><div class="topic-timeline"></div></div></body></html>'
 					: '{}',
 			}));
 			await use(context);
@@ -73,6 +73,99 @@ async function openSettings(page) {
 }
 
 const checkbox = (page, text) => page.locator('#linuxdoscripts .item').filter({ hasText: text }).locator('input[type=checkbox]').first();
+
+test('真实异步请求错误在事务错误尚为空时仍能传递，保存失败保留原配置', async ({ extensionContext }) => {
+	const modules = new Map();
+	for (const name of ['indexedDBStorage.js', 'settingsManager.js', 'storageDebugger.js']) {
+		modules.set(name, await readFile(path.resolve('entrypoints/utilities', name), 'utf8'));
+	}
+	await extensionContext.route('**/raw/settings-modules/*.js', async (route) => {
+		const name = new URL(route.request().url()).pathname.split('/').pop();
+		await route.fulfill({ contentType: 'application/javascript', body: modules.get(name) });
+	});
+	const page = await extensionContext.newPage();
+	await page.goto(`${origin}/raw/settings-test`);
+	const result = await page.evaluate(async () => {
+		window.process = { env: { NODE_ENV: 'production' } };
+		const storage = (await import('/raw/settings-modules/indexedDBStorage.js')).default;
+		const manager = (await import('/raw/settings-modules/settingsManager.js')).default;
+		await storage.saveSettings({ checked1: true, testId: 2 });
+		storage.version = 2;
+		// 测试专用索引构造异步 ConstraintError，生产数据库不增加索引。
+		await new Promise((resolve, reject) => {
+			const request = indexedDB.open(storage.dbName, storage.version);
+			request.onupgradeneeded = () => {
+				const store = request.transaction.objectStore(storage.storeName);
+				store.createIndex('test_unique', 'value.testId', { unique: true });
+				store.put({ key: 'conflict', value: { testId: 1 } });
+			};
+			request.onerror = () => reject(request.error);
+			request.onsuccess = () => { request.result.close(); resolve(); };
+		});
+		await manager.getSettings();
+		const errors = [];
+		const originalOpen = storage.openDBWithTimeout.bind(storage);
+		storage.openDBWithTimeout = async () => {
+			const db = await originalOpen();
+			const transaction = db.transaction.bind(db);
+			db.transaction = (...args) => {
+				const tx = transaction(...args);
+				tx.addEventListener('error', (event) => errors.push({
+					requestError: event.target.error?.name ?? null,
+					transactionError: tx.error?.name ?? null,
+				}));
+				return tx;
+			};
+			return db;
+		};
+		let rejectedError = null;
+		try {
+			await storage.saveSettings({ checked1: false, testId: 1 });
+		} catch (error) {
+			rejectedError = error?.name ?? null;
+		}
+		const saved = await manager.saveSettings({ checked1: false, testId: 1 });
+		return { rejectedError, saved, errors, stored: await storage.getSettings(), cache: manager.cache };
+	});
+	expect(result).toEqual({
+		rejectedError: 'ConstraintError', saved: false,
+		errors: Array(2).fill({ requestError: 'ConstraintError', transactionError: null }),
+		stored: { checked1: true, testId: 2 }, cache: { checked1: true, testId: 2 },
+	});
+});
+
+for (const { name, saved, draft, dropdown } of [
+	{ name: '编辑已有回复', saved: 'saved fixture reply', draft: 'unsaved fixture reply', dropdown: false },
+	{ name: '下拉模式编辑回复', saved: 'saved fixture reply', draft: 'unsaved dropdown reply', dropdown: true },
+	{ name: '清空已有回复', saved: 'saved fixture reply', draft: '', dropdown: false },
+	{ name: '首次输入回复', saved: '', draft: 'first fixture reply', dropdown: false },
+]) {
+	test(`快捷回复${name}时定时器保留草稿，保存刷新后内容一致`, async ({ extensionContext }) => {
+		const page = await extensionContext.newPage();
+		await seed(page, { QuickReply: saved, QuickReplyisDropdown: dropdown });
+		await openSettings(page);
+		await page.locator('.menu-nav li').nth(1).click();
+		const input = page.locator('textarea.multiline-placeholder');
+		await expect(input).toHaveValue(saved);
+		await input.fill(draft);
+		// 跨过每秒刷新周期，验证实际定时器不会从数据库覆盖输入。
+		await page.waitForTimeout(1500);
+		await expect(input).toHaveValue(draft);
+		expect((await readSettings(page)).QuickReply).toBe(saved);
+		if (saved) {
+			const replies = page.locator(dropdown ? '.createreply-select option:not([value=""])' : '.createreply button');
+			await expect(replies).toHaveText([saved]);
+		} else {
+			await expect(page.locator('.createreply')).toHaveCount(0);
+		}
+		await Promise.all([page.waitForEvent('load'), page.locator('button.saveload').click()]);
+		expect((await readSettings(page)).QuickReply).toBe(draft);
+		await page.locator('.linuxdoscripts-setting').click();
+		await expect(page.locator('button.save')).toBeEnabled();
+		await page.locator('.menu-nav li').nth(1).click();
+		await expect(input).toHaveValue(draft);
+	});
+}
 
 test('保存并刷新后设置保留，重复保存和无修改保存均不会回退', async ({ extensionContext }) => {
 	const page = await extensionContext.newPage();
