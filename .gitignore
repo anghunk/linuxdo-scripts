@@ -27,4 +27,6 @@ web-ext.config.ts
 .env
 package-lock.json
 .output
+test-results
+playwright-report
 entrypoints/demo

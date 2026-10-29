@@ -49,10 +49,12 @@
           <Updates />
         </ul>
         <div class="menu-body">
+          <div v-if="!dataLoaded" role="status" style="text-align: center; padding: 20px;">
+            <p>{{ loadError ? '设置读取失败，现有数据未被覆盖。请重试。' : '正在加载设置数据...' }}</p>
+            <button v-if="loadError" @click="loadSettings">重新加载</button>
+          </div>
+          <template v-if="dataLoaded">
           <div class="menu-body-item" v-show="activeIndex == 0">
-            <div v-if="!dataLoaded" style="text-align: center; padding: 20px;">
-              <p>正在加载设置数据...</p>
-            </div>
             <div v-if="dataLoaded">
               <div class="menu-about">
                 <p>请注意，该设置面板数据全部保存在本地浏览器缓存中，注意备份。</p>
@@ -227,11 +229,12 @@
           <div class="menu-body-item" v-show="activeIndex == 5">
             <SyncBackup />
           </div>
+          </template>
         </div>
       </div>
       <div class="menu-footer">
-        <button class="save" @click="save">保存</button>
-        <button class="saveload" @click="saveload">保存并刷新</button>
+        <button class="save" @click="save" :disabled="!dataLoaded || saving">保存</button>
+        <button class="saveload" @click="saveload" :disabled="!dataLoaded || saving">保存并刷新</button>
       </div>
     </dialog>
 
@@ -248,8 +251,10 @@
 </template>
 
 <script>
+// 持久化修复：读取失败禁止保存，面板只提交改动，保存成功后才刷新。
 import $ from "jquery";
 import settingsManager from "./utilities/settingsManager.js";
+import { getSettingsChanges } from "./utilities/settingsChanges.js";
 
 // 基础设置
 import packageJson from "../package.json";
@@ -586,6 +591,9 @@ export default {
       settingsSearchQuery: "", // 添加搜索查询字段
       observer: null,
       dataLoaded: false, // 数据加载完成标志
+      loadError: false,
+      saving: false,
+      settingsBaseline: null,
 
       isMenuOpen: false,
     };
@@ -644,9 +652,14 @@ export default {
     },
     // 保存设置
     async save() {
+      if (!this.dataLoaded || this.saving) return false;
+      this.saving = true;
       try {
-        const success = await settingsManager.saveSettings(this.settingData);
+        const submitted = JSON.parse(JSON.stringify(this.settingData));
+        const changes = getSettingsChanges(this.settingsBaseline, submitted);
+        const success = await settingsManager.updateSettings(changes);
         if (success) {
+          this.settingsBaseline = submitted;
           this.showtitlekeyword = this.settingData.titleKeywordBlock.enable;
           this.messageToast("保存成功！");
           this.showdialog = false;
@@ -654,6 +667,7 @@ export default {
         } else {
           this.messageToast("保存失敗，請檢查控制台獲取詳細信息");
         }
+        return success;
       } catch (error) {
         console.error('保存設置失敗：', error);
         if (error.name === 'DataCloneError') {
@@ -661,12 +675,37 @@ export default {
         } else {
           this.messageToast("保存失敗，請重試！");
         }
+        return false;
+      } finally {
+        this.saving = false;
       }
     },
     // 保存并刷新
-    saveload() {
-      this.save();
-      location.reload();
+    async saveload() {
+      if (await this.save()) location.reload();
+    },
+    async loadSettings() {
+      this.dataLoaded = false;
+      this.loadError = false;
+      try {
+        this.settingData = await settingsManager.initializeSettings(this.settingData);
+        this.settingsBaseline = JSON.parse(JSON.stringify(this.settingData));
+        this.showlookop = this.settingData.checked9;
+        this.showlevelsearch = this.settingData.checked12;
+        this.showreplybtn = this.settingData.checked25;
+        this.showbacktotop = this.settingData.checked34;
+        this.showbacktoonefloor = this.settingData.checked48;
+        this.showbookmarkbtn = this.settingData.checked52;
+        this.showbookmarkfolderbtn = this.settingData.checked53;
+        this.showviewhistorylist = this.settingData.checked56;
+        this.showtitlekeyword = this.settingData.titleKeywordBlock.enable;
+        this.controlheight = this.settingData.checked01;
+        this.dataLoaded = true;
+      } catch (error) {
+        console.error('加载设置数据失败:', error);
+        this.loadError = true;
+        this.messageToast("设置读取失败，未写入默认设置，请重试");
+      }
     },
 
     showItem(index) {
@@ -676,7 +715,7 @@ export default {
     // 初始化设置
     async initialization() {
       try {
-        await settingsManager.clearSettings();
+        if (!await settingsManager.clearSettings()) throw new Error('清除设置失败');
         this.messageToast("初始化设置成功，即将自动刷新！");
         setTimeout(() => {
           location.reload();
@@ -736,50 +775,7 @@ export default {
     );
 
 
-    // 使用 IndexedDB 加载设置数据
-    try {
-      const existingData = await settingsManager.getSettings();
-
-      if (existingData) {
-        function deepMerge(target, source) {
-          for (const key in source) {
-            if (source[key] instanceof Object && key in target) {
-              target[key] = deepMerge(target[key], source[key]);
-            } else {
-              target[key] = source[key];
-            }
-          }
-          return target;
-        }
-        
-        this.settingData = deepMerge(this.settingData, existingData);
-        await settingsManager.saveSettings(this.settingData);
-
-        this.showlookop = this.settingData.checked9;
-        this.showlevelsearch = this.settingData.checked12;
-        this.showreplybtn = this.settingData.checked25;
-        this.showbacktotop = this.settingData.checked34;
-        this.showbacktoonefloor = this.settingData.checked48;
-        this.showbookmarkbtn = this.settingData.checked52;
-        this.showbookmarkfolderbtn = this.settingData.checked53;
-        this.showviewhistorylist = this.settingData.checked56;
-        this.showtitlekeyword = this.settingData.titleKeywordBlock.enable;
-        this.controlheight = this.settingData.checked01;
-        
-      } else {
-        // 如果没有现有数据，保存默认设置
-        await settingsManager.saveSettings(this.settingData);
-      }
-      
-      // 数据加载完成，可以渲染组件了
-      this.dataLoaded = true;
-    } catch (error) {
-      console.error('加載設置數據失敗:', error);
-      // 如果 IndexedDB 失敗，可以考慮回退到 localStorage 作為備用
-      this.messageToast("加載設置失敗，使用默認設置");
-      // 即使加载失败也要显示界面
-      this.dataLoaded = true;
-    }
+    await this.loadSettings();
 
     browserAPI.runtime.onMessage.addListener((request, sender, sendResponse) => {
       if (request.action === "getData") {

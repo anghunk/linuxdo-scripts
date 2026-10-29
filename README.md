@@ -108,6 +108,20 @@ npm run dev
 - 🔄 **提交流程**: PR → 代码审核 → 合并
 - 📚 **文档更新**: 新功能需同步更新文档
 
+### 5. 设置存储回归测试
+
+```bash
+npm test
+npm run compile
+npm run build
+npx playwright install chromium
+npm run test:browser
+```
+
+浏览器测试使用独立的临时配置目录和拦截的测试页面，不访问真实论坛或读取个人浏览器数据。可使用 `PLAYWRIGHT_CHROMIUM_EXECUTABLE` 指定已有的 Chromium 可执行文件。
+
+设置保存等待 IndexedDB 事务提交；读取失败时保留原数据并提供重试。普通保存只合并面板实际修改的字段；同一字段的同时编辑按最后一次提交为准，手动导入和云端恢复仍会替换整份设置。
+
 ## 五、参与贡献
 
 ### 1. 贡献方式
