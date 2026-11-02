@@ -25,6 +25,7 @@ web-ext.config.ts
 *.sw?
 
 .env
+.env.submit
 package-lock.json
 .output
 test-results

@@ -122,6 +122,41 @@ npm run test:browser
 
 设置保存等待 IndexedDB 事务提交；读取失败时保留原数据并提供重试。普通保存只合并面板实际修改的字段；同一字段的同时编辑按最后一次提交为准，手动导入和云端恢复仍会替换整份设置。
 
+### 6. 自动发布到 Chrome 和 Firefox 商店
+
+WXT 负责打包，`publish-browser-extension` 负责上传新版本并提交审核，审核通过后由商店发布。首次创建商店条目仍需在开发者后台手动完成。
+
+项目使用 WXT 0.19，其内置提交工具使用 Chrome 旧版 API。这里单独固定发布工具为 `6.0.0`，通过 Chrome Web Store API v2 提交，入口是 `npm run submit`。
+
+先在本地运行凭据配置向导：
+
+```bash
+npm install
+npm run submit:init
+```
+
+Chrome 选择 API v2，按 [Google 服务账号指南](https://developer.chrome.com/docs/webstore/service-accounts) 启用 Chrome Web Store API、关联服务账号并下载 JSON 密钥。向导生成的 `.env.submit` 仅供本地使用，已加入 Git 忽略规则。
+
+在 GitHub 仓库 **Settings → Secrets and variables → Actions → Secrets** 中添加：
+
+| 商店 | Secret | 用途 |
+| --- | --- | --- |
+| Chrome | `CHROME_EXTENSION_ID` | 当前账号下的扩展 ID |
+| Chrome | `CHROME_PUBLISHER_ID` | 开发者后台 Publisher → Settings 中的发布者 ID |
+| Chrome | `CHROME_SERVICE_ACCOUNT_CLIENT_EMAIL` | 服务账号 JSON 中的 `client_email` |
+| Chrome | `CHROME_SERVICE_ACCOUNT_PRIVATE_KEY` | 服务账号 JSON 中的 `private_key`，保留 PEM 的实际换行 |
+| Firefox | `FIREFOX_EXTENSION_ID` | AMO 中现有扩展的 ID |
+| Firefox | `FIREFOX_JWT_ISSUER` | AMO API key |
+| Firefox | `FIREFOX_JWT_SECRET` | AMO API secret |
+
+首次接入时，在 **Actions → 发布扩展商店 → Run workflow** 中填写已有 Release 标签，保留 `dry_run=true` 验证凭据。验证通过后，将同一入口的 `dry_run` 取消勾选即可正式提交；`stores` 可选择 `all`、`chrome` 或 `firefox`。两家商店分别运行，某家失败时可单独重试该商店。
+
+启用后续自动提交：在同一设置页的 **Variables** 中添加 `PUBLISH_STORES=all`，也可填写 `chrome` 或 `firefox`。现有 Release 工作流创建新版本后，会把该 Release 中的安装包交给商店发布工作流。Firefox 同时提交 `*-sources.zip`，供审核人员重建源码。移除该变量即可关闭自动提交，手动入口仍可使用。
+
+现有 Release 工作流仅在 `anghunk/linuxdo-scripts` 仓库运行；Fork 维护者需先将 `.github/workflows/create_release.yml` 中的仓库条件改为自己的仓库，并配置原有的 `ACCESS_TOKEN`。
+
+参考：[WXT 发布文档](https://wxt.dev/guide/essentials/publishing)、[Chrome API v2 迁移公告](https://developer.chrome.com/blog/cws-api-v2)、[发布工具配置](https://github.com/aklinker1/publish-browser-extension)。
+
 ## 五、参与贡献
 
 ### 1. 贡献方式

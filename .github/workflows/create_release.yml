@@ -10,12 +10,15 @@ jobs:
   check-release:
     if: github.repository == 'anghunk/linuxdo-scripts'
     runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.get_version.outputs.version }}
+      created: ${{ steps.compare_versions.outputs.created }}
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v7
 
       - name: Set up Node.js
-        uses: actions/setup-node@v3
+        uses: actions/setup-node@v7
         with:
           node-version: '22'
 
@@ -24,7 +27,10 @@ jobs:
 
       - name: Get package.json version
         id: get_version
-        run: echo "PACKAGE_VERSION=$(node -p "require('./package.json').version")" >> $GITHUB_ENV
+        run: |
+          PACKAGE_VERSION=$(node -p "require('./package.json').version")
+          echo "PACKAGE_VERSION=$PACKAGE_VERSION" >> "$GITHUB_ENV"
+          echo "version=$PACKAGE_VERSION" >> "$GITHUB_OUTPUT"
 
       - name: Get latest release version
         id: get_release
@@ -37,9 +43,11 @@ jobs:
           if [ "$(cat latest_release.txt)" != "$PACKAGE_VERSION" ]; then
             echo "Version mismatch"
             echo "create_release=true" >> $GITHUB_ENV
+            echo "created=true" >> "$GITHUB_OUTPUT"
           else
             echo "Version matches"
             echo "create_release=false" >> $GITHUB_ENV
+            echo "created=false" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Build and package extensions
@@ -73,3 +81,17 @@ jobs:
           .output/*.zip
         env:
           GITHUB_TOKEN: ${{ secrets.ACCESS_TOKEN }}
+
+  publish-stores:
+    needs: check-release
+    if: >-
+      needs.check-release.outputs.created == 'true' &&
+      contains(fromJSON('["chrome", "firefox", "all"]'), vars.PUBLISH_STORES)
+    permissions:
+      contents: read
+    uses: ./.github/workflows/publish_stores.yml
+    with:
+      release_tag: ${{ needs.check-release.outputs.version }}
+      stores: ${{ vars.PUBLISH_STORES }}
+      dry_run: false
+    secrets: inherit
