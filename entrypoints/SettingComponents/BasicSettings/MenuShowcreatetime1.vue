@@ -7,6 +7,7 @@
 
 <script>
 import $ from "jquery";
+import { renderViewsTime } from "../../utilities/topicListTime";
 export default {
   props: ["modelValue", "sort"],
   emits: ["update:modelValue"],
@@ -93,72 +94,42 @@ export default {
       $(".topic-list-item .age").each((index, element) => {
         const str = $(element).attr("title");
         // 匹配第一行从冒号开始的内容，支持中英文格式和冒号
-        const match = str.match(/^(?:创建日期|Created)[:：]\s*([^\n]+)/);
+        const match = str && str.match(/^(?:创建日期|Created)[:：]\s*([^\n]+)/);
 
         if (match && match[1]) {
           const creationDate = match[1].trim();
           const timestamp = this.convertToTimestamp(creationDate);
+          if (timestamp === null) return;
 
-          // if ($(element).find(".linuxtime").length < 1) {
           const now = new Date().getTime();
           const oneDay = 1000 * 60 * 60 * 24;
           const oneWeek = oneDay * 7;
           const oneMonth = oneDay * 30;
           const threeMonths = oneMonth * 3;
 
-          let color;
           const timeDiff = now - timestamp;
+          let color;
 
           if (timeDiff < oneDay) {
             color = "#45B5AA";
-            $(element)
-              .siblings(".views")
-              .html(
-                `<span class="linuxtime" style="color:${color}">${this.formattedDate(
-                  timestamp
-                )}</span>`
-              );
           } else if (timeDiff < oneWeek) {
             color = "#66A586";
-            $(element)
-              .siblings(".views")
-              .html(
-                `<span class="linuxtime" style="color:${color}">${this.formattedDate(
-                  timestamp
-                )}</span>`
-              );
           } else if (timeDiff < oneMonth) {
             color = "#CFA94A";
-            $(element)
-              .siblings(".views")
-              .html(
-                `<span class="linuxtime" style="color:${color}">${this.formattedDate(
-                  timestamp
-                )}</span>`
-              );
           } else if (timeDiff < threeMonths) {
             color = "#3e8ed2";
-            $(element)
-              .siblings(".views")
-              .html(
-                `<span class="linuxtime" style="color:${color}">${this.formattedDate(
-                  timestamp
-                )}</span>`
-              );
           } else {
             color = "#cccccc";
-            $(element)
-              .siblings(".views")
-              .html(
-                `<span class="linuxtime" style="color:${color}">
-               <svg style="vertical-align:bottom;margin-right:5px;" class="icon" width="22" height="22" viewBox="0 0 1024 1024" version="1.1" xmlns="http://www.w3.org/2000/svg"><path fill="#A51C30" d="M916.992 813.44c11.008-44.032-9.856-53.632-9.856-53.632 7.168-23.552-12.8-46.592-12.8-46.592a72.448 72.448 0 0 0-12.032-34.816h-85.12V179.2a9.856 9.856 0 0 0-9.984-9.6h-54.144a9.856 9.856 0 0 1-9.472-7.168A204.8 204.8 0 0 0 524.8 14.208h-27.904a204.8 204.8 0 0 0-198.016 147.712 9.856 9.856 0 0 1-9.472 7.168h-51.968a10.496 10.496 0 0 0-10.752 10.368v499.2h-84.992v1.28a78.336 78.336 0 0 0-9.088 32.256s-22.656 23.296-15.36 46.72c0 0-20.736 9.856-9.344 53.504 0 0-66.176 11.776-49.408 193.536h83.072v0.768h740.608l86.528-0.896c14.72-181.376-51.712-192.384-51.712-192.384z" /></svg>${this.formattedDate(
-                  timestamp
-                )}
-                </span>`
-              );
           }
+
+          const formatted = this.formattedDate(timestamp);
+          const html =
+            timeDiff < threeMonths
+              ? `（${formatted}）`
+              : `（<svg style="vertical-align:bottom;margin-right:5px;" class="icon" width="22" height="22" viewBox="0 0 1024 1024" version="1.1" xmlns="http://www.w3.org/2000/svg"><path fill="#A51C30" d="M916.992 813.44c11.008-44.032-9.856-53.632-9.856-53.632 7.168-23.552-12.8-46.592-12.8-46.592a72.448 72.448 0 0 0-12.032-34.816h-85.12V179.2a9.856 9.856 0 0 0-9.984-9.6h-54.144a9.856 9.856 0 0 1-9.472-7.168A204.8 204.8 0 0 0 524.8 14.208h-27.904a204.8 204.8 0 0 0-198.016 147.712 9.856 9.856 0 0 1-9.472 7.168h-51.968a10.496 10.496 0 0 0-10.752 10.368v499.2h-84.992v1.28a78.336 78.336 0 0 0-9.088 32.256s-22.656 23.296-15.36 46.72c0 0-20.736 9.856-9.344 53.504 0 0-66.176 11.776-49.408 193.536h83.072v0.768h740.608l86.528-0.896c14.72-181.376-51.712-192.384-51.712-192.384z" /></svg>${formatted}）`;
+
+          renderViewsTime($(element).siblings(".views")[0], html, color);
         }
-        // }
       });
     },
     // 初始化定时器，避免嵌套创建多个定时器
