@@ -481,16 +481,21 @@
 .linuxfloor {
   display: flex;
   color: var(--tertiary);
-  width: 30px;
+  width: auto;
+  min-width: 30px;
   height: 30px;
   align-items: center;
   justify-content: center;
   border-radius: 6px;
   font-size: 16px;
+  line-height: 1;
+  white-space: nowrap;
+  flex-shrink: 0;
+  box-sizing: border-box;
   border: 0;
   background: none;
   outline: none;
-  padding: 0;
+  padding: 0 6px;
   margin-left: 6px;
 }
 
